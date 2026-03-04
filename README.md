@@ -1,8 +1,6 @@
 # Payroll Management System
 
-A full-stack payroll management system that automates employee salary calculation, attendance tracking, and payslip generation for a garment manufacturing company in Sri Lanka.
-
-Built as a final-year thesis project (BSc Computer Science).
+A full-stack payroll management system that automates employee salary calculation, attendance tracking, and payslip generation for companies in Sri Lanka.
 
 ---
 
