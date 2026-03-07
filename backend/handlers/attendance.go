@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/musharaf/payroll-backend/database"
 	"github.com/musharaf/payroll-backend/models"
 	"github.com/xuri/excelize/v2"
@@ -30,28 +29,27 @@ import (
 // col[5] (Daily Total) filled in. We use that as the authoritative total.
 
 var (
-	dayNames  = map[string]bool{"MON": true, "TUE": true, "WED": true, "THU": true, "FRI": true, "SAT": true, "SUN": true}
-	empIDRe   = regexp.MustCompile(`\((\d+)\)`)
+	dayNames = map[string]bool{"MON": true, "TUE": true, "WED": true, "THU": true, "FRI": true, "SAT": true, "SUN": true}
+	empIDRe  = regexp.MustCompile(`\((\d+)\)`)
 )
 
 // UploadAttendance handles POST /api/attendance/upload (multipart form, field "file").
-func UploadAttendance(c *gin.Context) {
-	file, err := c.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file field is required"})
+func UploadAttendance(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to parse form"})
 		return
 	}
 
-	src, err := file.Open()
+	file, _, err := r.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not open uploaded file"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file field is required"})
 		return
 	}
-	defer src.Close()
+	defer file.Close()
 
-	f, err := excelize.OpenReader(src)
+	f, err := excelize.OpenReader(file)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid Excel file: " + err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid Excel file: " + err.Error()})
 		return
 	}
 	defer f.Close()
@@ -59,13 +57,13 @@ func UploadAttendance(c *gin.Context) {
 	sheetName := f.GetSheetName(0)
 	rows, err := f.GetRows(sheetName)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not read sheet"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not read sheet"})
 		return
 	}
 
 	saved, skipped, parseErrors := parseAndSaveAttendance(rows)
 
-	c.JSON(http.StatusOK, gin.H{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"message": fmt.Sprintf("done: %d records saved, %d skipped", saved, skipped),
 		"saved":   saved,
 		"skipped": skipped,
@@ -86,7 +84,6 @@ func parseAndSaveAttendance(rows [][]string) (saved, skipped int, errs []string)
 			col[j] = strings.TrimSpace(row[j])
 		}
 
-		// --- Employee header row ---
 		if col[0] == "Employee" && col[3] != "" {
 			emp, err := findEmployee(col[3])
 			if err != nil {
@@ -99,12 +96,10 @@ func parseAndSaveAttendance(rows [][]string) (saved, skipped int, errs []string)
 			continue
 		}
 
-		// Nothing to do without a known employee
 		if currentEmployee == nil {
 			continue
 		}
 
-		// --- Day row: starts a new date ---
 		if dayNames[strings.ToUpper(col[0])] && col[1] != "" {
 			date, err := parseXLSDate(col[1])
 			if err != nil {
@@ -114,12 +109,9 @@ func parseAndSaveAttendance(rows [][]string) (saved, skipped int, errs []string)
 			}
 			currentDate = date
 			hasDate = true
-
-			// Record the first Time-In for this day
 			currentTimeIn = parseHHMM(currentDate, col[2])
 		}
 
-		// --- Any row (day or continuation) with a Daily Total ---
 		if hasDate && col[5] != "" {
 			totalHours, err := parseHHMMtoHours(col[5])
 			if err != nil {
@@ -148,7 +140,7 @@ func parseAndSaveAttendance(rows [][]string) (saved, skipped int, errs []string)
 			} else {
 				saved++
 			}
-			hasDate = false // consumed — wait for next day row
+			hasDate = false
 		}
 	}
 	return
@@ -156,7 +148,6 @@ func parseAndSaveAttendance(rows [][]string) (saved, skipped int, errs []string)
 
 // findEmployee looks up an employee by the ID embedded in the name cell.
 // Format: "Full Name\n(ID)"  e.g. "M Sujivamalkanthi\n(6)"
-// Preloads SalaryProfile so IsLunchHourDeduction is available for hour splitting.
 func findEmployee(cell string) (*models.User, error) {
 	m := empIDRe.FindStringSubmatch(cell)
 	if m == nil {
@@ -176,7 +167,7 @@ func upsertAttendance(a models.Attendance) error {
 	var existing models.Attendance
 	err := database.DB.Where("employee_id = ? AND date = ?", a.EmployeeID, a.Date).First(&existing).Error
 	if err == nil {
-		return database.DB.Model(&existing).Updates(map[string]interface{}{
+		return database.DB.Model(&existing).Updates(map[string]any{
 			"time_in":        a.TimeIn,
 			"time_out":       a.TimeOut,
 			"total_hours":    a.TotalHours,
@@ -189,9 +180,9 @@ func upsertAttendance(a models.Attendance) error {
 }
 
 // GetEmployeeAttendance returns attendance for an employee, optionally filtered by month=YYYY-MM.
-func GetEmployeeAttendance(c *gin.Context) {
-	employeeID := c.Param("id")
-	month := c.Query("month")
+func GetEmployeeAttendance(w http.ResponseWriter, r *http.Request) {
+	employeeID := r.PathValue("id")
+	month := r.URL.Query().Get("month")
 
 	query := database.DB.Where("employee_id = ?", employeeID).Order("date ASC")
 	if month != "" {
@@ -203,15 +194,14 @@ func GetEmployeeAttendance(c *gin.Context) {
 
 	var records []models.Attendance
 	if err := query.Find(&records).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch attendance"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to fetch attendance"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"attendance": records, "count": len(records)})
+	writeJSON(w, http.StatusOK, map[string]any{"attendance": records, "count": len(records)})
 }
 
 // --- helpers ---
 
-// parseXLSDate parses "DD-MM-YY" as used in NGTimereport files.
 func parseXLSDate(s string) (time.Time, error) {
 	t, err := time.Parse("02-01-06", s)
 	if err != nil {
@@ -220,8 +210,6 @@ func parseXLSDate(s string) (time.Time, error) {
 	return t.UTC().Truncate(24 * time.Hour), nil
 }
 
-// parseHHMM parses "HH:MM" and returns a *time.Time anchored to the given date.
-// Returns nil for empty/invalid input.
 func parseHHMM(date time.Time, s string) *time.Time {
 	if s == "" {
 		return nil
@@ -239,7 +227,6 @@ func parseHHMM(date time.Time, s string) *time.Time {
 	return &t
 }
 
-// parseHHMMtoHours converts "10:08" → 10.133...
 func parseHHMMtoHours(s string) (float64, error) {
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) != 2 {
@@ -253,8 +240,6 @@ func parseHHMMtoHours(s string) (float64, error) {
 	return h + m/60, nil
 }
 
-// splitHours applies the Google Apps Script lunch-deduction logic.
-// Returns (regularHours, overtimeHours, isHalfDay).
 func splitHours(raw float64, lunchDeduction bool) (float64, float64, bool) {
 	isHalfDay := raw < 4
 	var regular, overtime float64
