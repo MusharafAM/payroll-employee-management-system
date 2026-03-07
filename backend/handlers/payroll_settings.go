@@ -3,52 +3,51 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/musharaf/payroll-backend/database"
 	"github.com/musharaf/payroll-backend/models"
 )
 
-// GetPayrollSettings returns all admin-configurable payroll rules. Manager/Admin only.
-func GetPayrollSettings(c *gin.Context) {
+// GetPayrollSettings returns all admin-configurable payroll rules.
+func GetPayrollSettings(w http.ResponseWriter, r *http.Request) {
 	var settings []models.PayrollSettings
 	if err := database.DB.Order("key").Find(&settings).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch payroll settings"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to fetch payroll settings"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"settings": settings})
+	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
 }
 
 type updateSettingRequest struct {
-	Value       *float64 `json:"value" binding:"required"`
+	Value       *float64 `json:"value"`
 	Description *string  `json:"description"`
 }
 
-// UpdatePayrollSetting updates a single setting by key. Admin only.
-func UpdatePayrollSetting(c *gin.Context) {
-	key := c.Param("key")
+// UpdatePayrollSetting updates a single setting by key.
+func UpdatePayrollSetting(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
 
 	var req updateSettingRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := decodeJSON(r, &req); err != nil || req.Value == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "value is required"})
 		return
 	}
 
 	var setting models.PayrollSettings
 	if err := database.DB.Where("key = ?", key).First(&setting).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "setting not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "setting not found"})
 		return
 	}
 
-	updates := map[string]interface{}{"value": *req.Value}
+	updates := map[string]any{"value": *req.Value}
 	if req.Description != nil {
 		updates["description"] = *req.Description
 	}
 
 	if err := database.DB.Model(&setting).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update setting"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update setting"})
 		return
 	}
 
 	database.DB.Where("key = ?", key).First(&setting)
-	c.JSON(http.StatusOK, gin.H{"setting": setting})
+	writeJSON(w, http.StatusOK, map[string]any{"setting": setting})
 }
