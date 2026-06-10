@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/musharaf/payroll-backend/database"
 	"github.com/musharaf/payroll-backend/models"
+	"github.com/musharaf/payroll-backend/services"
 	"gorm.io/gorm"
 )
 
@@ -66,35 +68,82 @@ func CreateEmployee(c *gin.Context) {
 	var employee models.User
 
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
-		employee = models.User{
-			EmployeeID: req.EmployeeID,
-			Email:      req.Email,
-			Name:       req.Name,
-			Role:       role,
-			Department: req.Department,
-			Position:   req.Position,
-			IsActive:   true,
-		}
-		if err := tx.Create(&employee).Error; err != nil {
-			return err
-		}
+		var existing models.User
+		findErr := tx.Unscoped().Where("email = ?", req.Email).First(&existing).Error
 
-		profile := models.SalaryProfile{
-			UserID:               employee.ID,
-			HourlyRate:           req.HourlyRate,
-			BaseSalary:           req.BaseSalary,
-			TravelAllowance:      req.TravelAllowance,
-			TravelAllowanceFixed: req.TravelAllowanceFixed,
-			IncentiveAllowance:   req.IncentiveAllowance,
-			EidBonus:             req.EidBonus,
-			HajBonus:             req.HajBonus,
-			PoyaBonus:            req.PoyaBonus,
-			TargetBonus:          req.TargetBonus,
-			AttendanceBonus:      req.AttendanceBonus,
-			IsLunchHourDeduction: req.IsLunchHourDeduction,
-			AdditionalAllowances: models.JSONBMap{},
+		if findErr == nil {
+			// User exists (could be soft-deleted or active). Let's restore and update them.
+			employee = existing
+			employee.EmployeeID = req.EmployeeID
+			employee.Name = req.Name
+			employee.Role = role
+			employee.Department = req.Department
+			employee.Position = req.Position
+			employee.IsActive = true
+			employee.DeletedAt = gorm.DeletedAt{} // Restore soft-deleted
+
+			// Save updates on user (unscoped to make sure GORM updates the soft-deleted row)
+			if err := tx.Unscoped().Save(&employee).Error; err != nil {
+				return err
+			}
+
+			// Update or create their salary profile
+			var profile models.SalaryProfile
+			profileErr := tx.Where("user_id = ?", employee.ID).First(&profile).Error
+			
+			profile.HourlyRate = req.HourlyRate
+			profile.BaseSalary = req.BaseSalary
+			profile.TravelAllowance = req.TravelAllowance
+			profile.TravelAllowanceFixed = req.TravelAllowanceFixed
+			profile.IncentiveAllowance = req.IncentiveAllowance
+			profile.EidBonus = req.EidBonus
+			profile.HajBonus = req.HajBonus
+			profile.PoyaBonus = req.PoyaBonus
+			profile.TargetBonus = req.TargetBonus
+			profile.AttendanceBonus = req.AttendanceBonus
+			profile.IsLunchHourDeduction = req.IsLunchHourDeduction
+
+			if profileErr != nil {
+				// Doesn't exist - create
+				profile.UserID = employee.ID
+				profile.AdditionalAllowances = models.JSONBMap{}
+				return tx.Create(&profile).Error
+			} else {
+				// Exists - save
+				return tx.Save(&profile).Error
+			}
+		} else {
+			// User doesn't exist at all - create brand new
+			employee = models.User{
+				EmployeeID: req.EmployeeID,
+				Email:      req.Email,
+				Name:       req.Name,
+				Role:       role,
+				Department: req.Department,
+				Position:   req.Position,
+				IsActive:   true,
+			}
+			if err := tx.Create(&employee).Error; err != nil {
+				return err
+			}
+
+			profile := models.SalaryProfile{
+				UserID:               employee.ID,
+				HourlyRate:           req.HourlyRate,
+				BaseSalary:           req.BaseSalary,
+				TravelAllowance:      req.TravelAllowance,
+				TravelAllowanceFixed: req.TravelAllowanceFixed,
+				IncentiveAllowance:   req.IncentiveAllowance,
+				EidBonus:             req.EidBonus,
+				HajBonus:             req.HajBonus,
+				PoyaBonus:            req.PoyaBonus,
+				TargetBonus:          req.TargetBonus,
+				AttendanceBonus:      req.AttendanceBonus,
+				IsLunchHourDeduction: req.IsLunchHourDeduction,
+				AdditionalAllowances: models.JSONBMap{},
+			}
+			return tx.Create(&profile).Error
 		}
-		return tx.Create(&profile).Error
 	})
 
 	if err != nil {
@@ -104,6 +153,12 @@ func CreateEmployee(c *gin.Context) {
 
 	// Return full record with profile
 	database.DB.Preload("SalaryProfile").First(&employee, "id = ?", employee.ID)
+
+	// Trigger Asgardeo user provisioning
+	if err := services.ProvisionUser(employee.Email, employee.Name); err != nil {
+		fmt.Printf("Warning: Failed to provision user in Asgardeo: %v\n", err)
+	}
+
 	c.JSON(http.StatusCreated, gin.H{"employee": employee})
 }
 

@@ -1,10 +1,16 @@
 import { useAuthContext, DecodedIDTokenPayload } from '@asgardeo/auth-react';
 import { useEffect, useState } from 'react';
-import { LogOut, User, Briefcase, Building2, Hash, Shield, Users, FileText } from 'lucide-react';
+import { LogOut, User, Briefcase, Building2, Hash, Shield, Users, FileText, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useApi } from '@/hooks/useApi';
 import type { User as DBUser } from '@/lib/api';
+import AdminEmployees from '@/components/AdminEmployees';
+import AdminAttendance from '@/components/AdminAttendance';
+import AdminSettings from '@/components/AdminSettings';
+import AdminPayroll from '@/components/AdminPayroll';
+import EmployeeDashboard from '@/components/EmployeeDashboard';
+
 
 interface AsgardeoToken extends DecodedIDTokenPayload {
   groups?: string[];
@@ -20,16 +26,39 @@ export default function Dashboard() {
   const [syncState, setSyncState] = useState<SyncState>('idle');
   const [error, setError] = useState('');
 
+  const hasDevToken = !!localStorage.getItem('dev_token');
+
   // On first authenticated load: sync the user to our DB, then fetch their record.
   useEffect(() => {
-    if (!state.isAuthenticated || syncState !== 'idle') return;
+    if ((!state.isAuthenticated && !hasDevToken) || syncState !== 'idle') return;
 
     const syncAndFetch = async () => {
       setSyncState('syncing');
       try {
-        const decoded = (await getDecodedIDToken()) as AsgardeoToken;
-        const email = decoded.email as string;
-        const name = (decoded.name || decoded.username || email) as string;
+        let email = '';
+        let name = '';
+        
+        if (hasDevToken) {
+          const token = localStorage.getItem('dev_token') || '';
+          if (token.startsWith('dev-token-email:')) {
+            email = token.replace('dev-token-email:', '');
+            const prefix = email.split('@')[0];
+            name = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+          } else if (token === 'dev-token-admin') {
+            email = 'admin@company.com';
+            name = 'Dev Admin';
+          } else if (token === 'dev-token-manager') {
+            email = 'manager@company.com';
+            name = 'Dev Manager';
+          } else {
+            email = 'employee@company.com';
+            name = 'Dev Employee';
+          }
+        } else {
+          const decoded = (await getDecodedIDToken()) as AsgardeoToken;
+          email = decoded.email as string;
+          name = (decoded.name || decoded.username || email) as string;
+        }
 
         // Create / update user in DB (role is read from the JWT groups claim by the backend)
         await api.post('/auth/sync-user', { email, name });
@@ -55,7 +84,7 @@ export default function Dashboard() {
     };
 
     syncAndFetch();
-  }, [state.isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.isAuthenticated, hasDevToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Loading ---
   if (syncState === 'idle' || syncState === 'syncing') {
@@ -98,7 +127,19 @@ export default function Dashboard() {
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500 hidden sm:block">{user.email}</span>
             <RoleBadge role={user.role} />
-            <Button variant="outline" size="sm" onClick={() => signOut()} className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => {
+                if (localStorage.getItem('dev_token')) {
+                  localStorage.removeItem('dev_token');
+                  window.location.href = '/login';
+                } else {
+                  signOut();
+                }
+              }} 
+              className="flex items-center gap-2"
+            >
               <LogOut className="w-4 h-4" />
               Sign Out
             </Button>
@@ -158,70 +199,96 @@ function RoleBadge({ role }: { role: string }) {
 }
 
 function AdminPanel() {
+  const [activeTab, setActiveTab] = useState<'employees' | 'attendance' | 'payroll' | 'settings'>('employees');
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <PlaceholderCard
-        icon={<Users className="w-6 h-6 text-blue-600" />}
-        title="Manage Employees"
-        description="Add, edit, and configure employee salary settings."
-      />
-      <PlaceholderCard
-        icon={<FileText className="w-6 h-6 text-green-600" />}
-        title="Upload Attendance"
-        description="Upload the monthly Excel timecard to process attendance."
-      />
-      <PlaceholderCard
-        icon={<Shield className="w-6 h-6 text-purple-600" />}
-        title="Run Payroll"
-        description="Calculate salaries and generate payslips for all employees."
-      />
+    <div className="space-y-6">
+      {/* Admin Navigation Tabs */}
+      <div className="flex flex-wrap border-b border-gray-200 gap-1 sm:gap-6 bg-white px-4 pt-4 rounded-t-xl border border-gray-100 shadow-sm">
+        {[
+          { id: 'employees', label: 'Manage Employees', icon: <Users className="w-4 h-4" /> },
+          { id: 'attendance', label: 'Upload Attendance', icon: <FileText className="w-4 h-4" /> },
+          { id: 'payroll', label: 'Run Payroll', icon: <Shield className="w-4 h-4" /> },
+          { id: 'settings', label: 'Payroll Settings', icon: <Settings className="w-4 h-4" /> },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex items-center gap-2 pb-4 px-2 text-sm font-semibold border-b-2 transition-all ${
+              activeTab === tab.id
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
+            }`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      <div className="bg-white/50 rounded-b-xl border-x border-b border-gray-100 shadow-sm p-6">
+        {activeTab === 'employees' && <AdminEmployees />}
+        {activeTab === 'attendance' && <AdminAttendance />}
+        {activeTab === 'payroll' && <AdminPayroll />}
+        {activeTab === 'settings' && <AdminSettings />}
+      </div>
     </div>
   );
 }
 
 function ManagerPanel() {
+  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'payroll'>('overview');
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <PlaceholderCard
-        icon={<Users className="w-6 h-6 text-blue-600" />}
-        title="Team Overview"
-        description="View attendance and payroll summary for your department."
-      />
-      <PlaceholderCard
-        icon={<FileText className="w-6 h-6 text-green-600" />}
-        title="Reports"
-        description="View department-level payroll and attendance reports."
-      />
+    <div className="space-y-6">
+      {/* Manager Navigation Tabs */}
+      <div className="flex flex-wrap border-b border-gray-200 gap-1 sm:gap-6 bg-white px-4 pt-4 rounded-t-xl border border-gray-100 shadow-sm">
+        {[
+          { id: 'overview', label: 'Team Overview', icon: <Users className="w-4 h-4" /> },
+          { id: 'attendance', label: 'Upload Attendance', icon: <FileText className="w-4 h-4" /> },
+          { id: 'payroll', label: 'Run Payroll', icon: <Shield className="w-4 h-4" /> },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex items-center gap-2 pb-4 px-2 text-sm font-semibold border-b-2 transition-all ${
+              activeTab === tab.id
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
+            }`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      <div className="bg-white/50 rounded-b-xl border-x border-b border-gray-100 shadow-sm p-6">
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <PlaceholderCard
+              icon={<Users className="w-6 h-6 text-blue-600" />}
+              title="Team Overview"
+              description="View attendance and payroll summary for your department."
+            />
+            <PlaceholderCard
+              icon={<FileText className="w-6 h-6 text-green-600" />}
+              title="Reports"
+              description="View department-level payroll and attendance reports."
+            />
+          </div>
+        )}
+        {activeTab === 'attendance' && <AdminAttendance />}
+        {activeTab === 'payroll' && <AdminPayroll />}
+      </div>
     </div>
   );
 }
 
 function EmployeePanel({ user }: { user: DBUser }) {
-  const profile = user.salaryProfile;
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Card className="p-5">
-        <h3 className="font-semibold text-gray-900 mb-3 text-sm">Salary Details</h3>
-        <div className="space-y-2 text-sm">
-          {[
-            { label: 'Base Salary', value: profile?.baseSalary ?? 0 },
-            { label: 'Hourly Rate', value: profile?.hourlyRate ?? 0 },
-            { label: 'Travel Allowance', value: profile?.travelAllowance ?? 0 },
-          ].map(({ label, value }) => (
-            <div key={label} className="flex justify-between">
-              <span className="text-gray-500">{label}</span>
-              <span className="font-medium">LKR {value.toLocaleString()}</span>
-            </div>
-          ))}
-        </div>
-      </Card>
-      <PlaceholderCard
-        icon={<FileText className="w-6 h-6 text-blue-600" />}
-        title="My Payslips"
-        description="View and download your monthly payslips once payroll is processed."
-      />
-    </div>
-  );
+  return <EmployeeDashboard user={user} />;
 }
 
 function PlaceholderCard({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {

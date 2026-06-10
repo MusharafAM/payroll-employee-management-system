@@ -118,6 +118,7 @@ type Attendance struct {
 type Payroll struct {
 	ID         string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
 	EmployeeID string `gorm:"not null"                                       json:"employeeId"`
+	Employee   *User  `gorm:"-"                                              json:"employee,omitempty"`
 	Month      string `gorm:"not null"                                       json:"month"`
 
 	WorkDays            int     `json:"workDays"`

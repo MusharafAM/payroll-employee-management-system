@@ -32,7 +32,7 @@ func SetupRoutes(router *gin.Engine) {
 	attendance := api.Group("/attendance")
 	attendance.Use(middleware.AuthMiddleware())
 	{
-		attendance.POST("/upload", middleware.AdminOnly(), handlers.UploadAttendance)
+		attendance.POST("/upload", middleware.ManagerOrAdmin(), handlers.UploadAttendance)
 		attendance.GET("/employee/:id", handlers.GetEmployeeAttendance)
 	}
 
@@ -42,5 +42,15 @@ func SetupRoutes(router *gin.Engine) {
 	{
 		settings.GET("", middleware.ManagerOrAdmin(), handlers.GetPayrollSettings)
 		settings.PUT("/:key", middleware.AdminOnly(), handlers.UpdatePayrollSetting)
+	}
+
+	// --- Payroll ---
+	payroll := api.Group("/payroll")
+	payroll.Use(middleware.AuthMiddleware())
+	{
+		payroll.GET("/calculate", middleware.ManagerOrAdmin(), handlers.CalculatePayroll)
+		payroll.POST("/save", middleware.AdminOnly(), handlers.SavePayroll)
+		payroll.GET("/history", middleware.ManagerOrAdmin(), handlers.GetPayrollHistory)
+		payroll.GET("/employee/:id", handlers.GetEmployeePayroll)
 	}
 }

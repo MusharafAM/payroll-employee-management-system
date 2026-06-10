@@ -70,6 +70,7 @@ export interface Attendance {
 export interface Payroll {
   id: string;
   employeeId: string;
+  employee?: User;
   month: string;
   workDays: number;
   regularHours: number;
