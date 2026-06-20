@@ -154,7 +154,8 @@ export default function AdminAttendance() {
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0];
-      if (droppedFile.name.endsWith('.xlsx') || droppedFile.name.endsWith('.xls')) {
+      const nameLower = droppedFile.name.toLowerCase();
+      if (nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls')) {
         setFile(droppedFile);
       } else {
         setUploadError('Only Excel files (.xlsx, .xls) are supported.');

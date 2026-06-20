@@ -25,15 +25,6 @@ func UploadAttendance(c *gin.Context) {
 		return
 	}
 
-	// Create a temp file to store uploaded content securely
-	tempFile, err := os.CreateTemp("", "attendance-*.xlsx")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create temp file"})
-		return
-	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
-
 	src, err := file.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not open uploaded file"})
@@ -41,23 +32,59 @@ func UploadAttendance(c *gin.Context) {
 	}
 	defer src.Close()
 
-	if _, err := io.Copy(tempFile, src); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save uploaded file"})
+	fileBytes, err := io.ReadAll(src)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read uploaded file"})
 		return
 	}
 
-	f, err := excelize.OpenFile(tempFile.Name())
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid Excel file: " + err.Error()})
-		return
-	}
-	defer f.Close()
+	var rows [][]string
 
-	sheetName := f.GetSheetName(0)
-	rows, err := f.GetRows(sheetName)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not read sheet"})
-		return
+	// Detect if it is XML SpreadsheetML format
+	isXML := false
+	headerLen := len(fileBytes)
+	if headerLen > 500 {
+		headerLen = 500
+	}
+	headerStr := strings.TrimSpace(string(fileBytes[:headerLen]))
+	if strings.HasPrefix(headerStr, "<?xml") || strings.Contains(headerStr, "<Workbook") {
+		isXML = true
+	}
+
+	if isXML {
+		rows, err = parsers.ParseXMLSpreadsheet(fileBytes)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse XML Spreadsheet: " + err.Error()})
+			return
+		}
+	} else {
+		// Create a temp file to store uploaded content securely
+		tempFile, err := os.CreateTemp("", "attendance-*.xlsx")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create temp file"})
+			return
+		}
+		defer os.Remove(tempFile.Name())
+		defer tempFile.Close()
+
+		if _, err := tempFile.Write(fileBytes); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save uploaded file"})
+			return
+		}
+
+		f, err := excelize.OpenFile(tempFile.Name())
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid Excel file: " + err.Error()})
+			return
+		}
+		defer f.Close()
+
+		sheetName := f.GetSheetName(0)
+		rows, err = f.GetRows(sheetName)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not read sheet"})
+			return
+		}
 	}
 
 	var parser parsers.AttendanceParser
