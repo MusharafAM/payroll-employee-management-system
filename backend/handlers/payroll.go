@@ -28,6 +28,14 @@ func round2(val float64) float64 {
 	return math.Round(val*100) / 100
 }
 
+// Helper to round floats up to the nearest 10 Rupees (matching existing system's standardizeSalaryText)
+func roundUp10(val float64) float64 {
+	if val <= 0 {
+		return 0
+	}
+	return math.Ceil(val/10.0) * 10.0
+}
+
 // calculateEmployeePayroll performs the payroll math for a single employee and month
 func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settings []models.PayrollSettings) (models.Payroll, error) {
 	// Parse settings
@@ -54,6 +62,7 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 	var overtimeHours float64
 	var overtime15Hours float64
 	var overtime20Hours float64
+	var lunchIncentiveHours float64
 
 	profile := emp.SalaryProfile
 	if profile == nil {
@@ -61,12 +70,13 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 		profile = &models.SalaryProfile{}
 	}
 
+	lunchDeductionActive := profile.IsLunchHourDeduction
+
 	for _, a := range attendances {
 		regularHours += a.RegularHours
 		overtimeHours += a.OvertimeHours
 
 		// Calculate 1.5x and 2.0x overtime hours dynamically based on PODUR policy
-		lunchDeductionActive := profile.IsLunchHourDeduction
 		var dailyOT15 float64
 		var dailyOT20 float64
 
@@ -90,6 +100,11 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 
 		overtime15Hours += dailyOT15
 		overtime20Hours += dailyOT20
+
+		// Accumulate lunch incentive hours (0.5 hours per work day if lunch hour deduction is active)
+		if a.TotalHours > 0 && lunchDeductionActive {
+			lunchIncentiveHours += 0.5
+		}
 	}
 
 	baseSalary := profile.BaseSalary
@@ -98,9 +113,19 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 	// Overtime Pay calculation with PODUR tiered rates
 	overtimePay := (overtime15Hours * 1.5 * hourlyRate) + (overtime20Hours * 2.0 * hourlyRate)
 
+	// Lunch Incentive calculation
+	lunchIncentive := lunchIncentiveHours * hourlyRate
+
+	// Performance Allowance calculation based on actual hours worked: regularTimeHours * hourlyRate - baseSalary
+	regularTimeSalary := regularHours * hourlyRate
+	var performanceAllowance float64
+	if regularTimeSalary > baseSalary {
+		performanceAllowance = regularTimeSalary - baseSalary
+	}
+
 	// Dynamic Allowances extraction
 	var travelAllowance float64
-	var incentiveAllowance float64
+	var staticAllowances float64
 	var eidBonus float64
 	var hajBonus float64
 	var poyaBonus float64
@@ -128,31 +153,59 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 			} else if strings.Contains(lowerKey, "attendance") {
 				attendanceBonus += val
 			} else if strings.Contains(lowerKey, "incentive") || strings.Contains(lowerKey, "performance") {
-				incentiveAllowance += val
+				staticAllowances += val
 			} else {
 				otherBonus += val
 			}
 		}
 	}
 
-	// Regular Pay is Base Salary
+	// Dynamic static allowances go into otherBonus to avoid conflict with the calculated performanceAllowance
+	otherBonus += staticAllowances
+
+	// Regular Pay is Base Salary (guaranteed floor)
 	regularPay := baseSalary
 
-	// Gross Salary
-	grossSalary := regularPay + overtimePay + travelAllowance + incentiveAllowance +
-		eidBonus + hajBonus + poyaBonus + targetBonus + attendanceBonus + otherBonus
-
-	// Deductions
-	epf8 := grossSalary * (epfEmployeeRate / 100)
-	epf12 := grossSalary * (epfEmployerRate / 100)
-	etf3 := grossSalary * (etfRate / 100)
+	// Deductions (Calculated on baseSalary instead of grossSalary to match existing system)
+	epf8 := baseSalary * (epfEmployeeRate / 100)
+	epf12 := baseSalary * (epfEmployerRate / 100)
+	etf3 := baseSalary * (etfRate / 100)
 
 	// Salary advances / loans (default to 0 unless fetched/stored elsewhere in future features)
 	salaryAdvance := 0.0
 	loan := 0.0
 
-	totalDeductions := epf8 + salaryAdvance + loan
-	netSalary := grossSalary - totalDeductions
+	// Round up all monetary values to the nearest 10 Rupees
+	baseSalaryRounded := roundUp10(baseSalary)
+	regularPayRounded := roundUp10(regularPay)
+	overtimePayRounded := roundUp10(overtimePay)
+	travelAllowanceRounded := roundUp10(travelAllowance)
+	performanceAllowanceRounded := roundUp10(performanceAllowance)
+	lunchIncentiveRounded := roundUp10(lunchIncentive)
+	eidBonusRounded := roundUp10(eidBonus)
+	hajBonusRounded := roundUp10(hajBonus)
+	poyaBonusRounded := roundUp10(poyaBonus)
+	targetBonusRounded := roundUp10(targetBonus)
+	attendanceBonusRounded := roundUp10(attendanceBonus)
+	otherBonusRounded := roundUp10(otherBonus)
+
+	grossSalary := regularPayRounded + overtimePayRounded + travelAllowanceRounded +
+		performanceAllowanceRounded + lunchIncentiveRounded + eidBonusRounded +
+		hajBonusRounded + poyaBonusRounded + targetBonusRounded + attendanceBonusRounded +
+		otherBonusRounded
+	grossSalaryRounded := roundUp10(grossSalary)
+
+	epf8Rounded := roundUp10(epf8)
+	epf12Rounded := roundUp10(epf12)
+	etf3Rounded := roundUp10(etf3)
+	salaryAdvanceRounded := roundUp10(salaryAdvance)
+	loanRounded := roundUp10(loan)
+
+	totalDeductions := epf8Rounded + salaryAdvanceRounded + loanRounded
+	totalDeductionsRounded := roundUp10(totalDeductions)
+
+	netSalary := grossSalaryRounded - totalDeductionsRounded
+	netSalaryRounded := roundUp10(netSalary)
 
 	return models.Payroll{
 		EmployeeID:           emp.ID,
@@ -162,25 +215,27 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 		OvertimeHours:        round2(overtimeHours),
 		Overtime15Hours:      round2(overtime15Hours),
 		Overtime20Hours:      round2(overtime20Hours),
-		BaseSalary:           round2(baseSalary),
-		RegularPay:           round2(regularPay),
-		OvertimePay:          round2(overtimePay),
-		TravelAllowance:      round2(travelAllowance),
-		PerformanceAllowance: round2(incentiveAllowance),
-		EidBonus:             round2(eidBonus),
-		HajBonus:             round2(hajBonus),
-		PoyaBonus:            round2(poyaBonus),
-		TargetBonus:          round2(targetBonus),
-		AttendanceBonus:      round2(attendanceBonus),
-		OtherBonus:           round2(otherBonus),
-		GrossSalary:          round2(grossSalary),
-		EPF8:                 round2(epf8),
-		EPF12:                round2(epf12),
-		ETF3:                 round2(etf3),
-		SalaryAdvance:        round2(salaryAdvance),
-		Loan:                 round2(loan),
-		TotalDeductions:      round2(totalDeductions),
-		NetSalary:            round2(netSalary),
+		LunchIncentiveHours:  round2(lunchIncentiveHours),
+		BaseSalary:           baseSalaryRounded,
+		RegularPay:           regularPayRounded,
+		OvertimePay:          overtimePayRounded,
+		LunchIncentive:       lunchIncentiveRounded,
+		PerformanceAllowance: performanceAllowanceRounded,
+		TravelAllowance:      travelAllowanceRounded,
+		EidBonus:             eidBonusRounded,
+		HajBonus:             hajBonusRounded,
+		PoyaBonus:            poyaBonusRounded,
+		TargetBonus:          targetBonusRounded,
+		AttendanceBonus:      attendanceBonusRounded,
+		OtherBonus:           otherBonusRounded,
+		GrossSalary:          grossSalaryRounded,
+		EPF8:                 epf8Rounded,
+		EPF12:                epf12Rounded,
+		ETF3:                 etf3Rounded,
+		SalaryAdvance:        salaryAdvanceRounded,
+		Loan:                 loanRounded,
+		TotalDeductions:      totalDeductionsRounded,
+		NetSalary:            netSalaryRounded,
 		GeneratedAt:          time.Now(),
 	}, nil
 }
