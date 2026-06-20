@@ -124,6 +124,8 @@ type Payroll struct {
 	WorkDays            int     `json:"workDays"`
 	RegularHours        float64 `json:"regularHours"`
 	OvertimeHours       float64 `json:"overtimeHours"`
+	Overtime15Hours     float64 `gorm:"default:0" json:"overtime15Hours"`
+	Overtime20Hours     float64 `gorm:"default:0" json:"overtime20Hours"`
 	LunchIncentiveHours float64 `gorm:"default:0" json:"lunchIncentiveHours"`
 
 	BaseSalary           float64 `gorm:"default:0" json:"baseSalary"`

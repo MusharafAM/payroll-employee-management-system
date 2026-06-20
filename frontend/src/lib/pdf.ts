@@ -48,7 +48,7 @@ export async function downloadPayslipPDF(payroll: Payroll, employeeName: string,
       <!-- Header -->
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3b82f6; padding-bottom: 20px; margin-bottom: 24px;">
         <div>
-          <h1 style="font-size: 24px; font-weight: 900; color: #1e3a8a; margin: 0; letter-spacing: -0.5px;">SL PAYROLL SYSTEM</h1>
+          <h1 style="font-size: 24px; font-weight: 900; color: #1e3a8a; margin: 0; letter-spacing: -0.5px;">PODUR PAYROLL SYSTEM</h1>
           <p style="font-size: 11px; color: #6b7280; margin: 4px 0 0 0;">Colombo, Sri Lanka • Official Statement</p>
         </div>
         <div style="text-align: right;">
@@ -86,6 +86,9 @@ export async function downloadPayslipPDF(payroll: Payroll, employeeName: string,
         <div style="flex: 1; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; text-align: center;">
           <span style="color: #6b7280; display: block; font-size: 9px; font-weight: 700; text-transform: uppercase;">Overtime Hours</span>
           <strong style="font-size: 14px; color: #7c3aed;">${payroll.overtimeHours} Hrs</strong>
+          <span style="color: #6b7280; display: block; font-size: 8px; margin-top: 4px; font-family: monospace;">
+            1.5x: ${payroll.overtime15Hours || 0}h | 2x: ${payroll.overtime20Hours || 0}h
+          </span>
         </div>
       </div>
 
@@ -102,7 +105,7 @@ export async function downloadPayslipPDF(payroll: Payroll, employeeName: string,
               <span style="font-family: monospace; font-weight: 600;">${formatLKR(payroll.baseSalary)}</span>
             </div>
             <div style="display: flex; justify-content: space-between;">
-              <span style="color: #4b5563;">Overtime Pay</span>
+              <span style="color: #4b5563;">Overtime Pay (1.5x & 2x)</span>
               <span style="font-family: monospace; font-weight: 600; color: #7c3aed;">${formatLKR(payroll.overtimePay)}</span>
             </div>
             <div style="display: flex; justify-content: space-between;">
@@ -167,7 +170,7 @@ export async function downloadPayslipPDF(payroll: Payroll, employeeName: string,
       <div style="display: flex; justify-content: space-between; font-size: 11px; border-top: 1px dashed #d1d5db; padding-top: 24px; color: #4b5563;">
         <div>
           <p style="margin: 0; font-weight: 700;">Finalized & Processed Online</p>
-          <p style="margin: 2px 0 0 0; color: #9ca3af;">SL Payroll Administration</p>
+          <p style="margin: 2px 0 0 0; color: #9ca3af;">PODUR Payroll Administration</p>
         </div>
         <div style="text-align: right;">
           <p style="margin: 0; font-style: italic; color: #9ca3af;">This payslip is system generated.</p>

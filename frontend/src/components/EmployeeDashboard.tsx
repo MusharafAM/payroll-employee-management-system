@@ -71,11 +71,33 @@ export default function EmployeeDashboard({ user }: { user: User }) {
     : attendance.reduce((sum, r) => sum + (r.overtimeHours || 0), 0);
 
   // Fallback calculation variables
-  const overtimeMultiplier = settings.find(s => s.key === 'overtime_multiplier')?.value ?? 1.5;
   const epfEmployeeRate = settings.find(s => s.key === 'epf_employee_rate')?.value ?? 8.0;
   const baseSalaryFallback = profile?.baseSalary ?? 0;
   const hourlyRate = profile?.hourlyRate ?? 0;
-  const overtimePayFallback = overtimeHours * hourlyRate * overtimeMultiplier;
+
+  // Calculate simulated overtime hours dynamically based on PODUR policy
+  const lunchDeductionActive = profile?.isLunchHourDeduction ?? true;
+  let simOT15 = 0;
+  let simOT20 = 0;
+  attendance.forEach(a => {
+    if (lunchDeductionActive) {
+      if (a.totalHours > 11) {
+        simOT15 += 2.0;
+        simOT20 += (a.totalHours - 11);
+      } else if (a.totalHours > 9) {
+        simOT15 += (a.totalHours - 9);
+      }
+    } else {
+      if (a.totalHours > 10) {
+        simOT15 += 2.0;
+        simOT20 += (a.totalHours - 10);
+      } else if (a.totalHours > 8) {
+        simOT15 += (a.totalHours - 8);
+      }
+    }
+  });
+
+  const overtimePayFallback = (simOT15 * 1.5 * hourlyRate) + (simOT20 * 2.0 * hourlyRate);
   const travelAllowanceFallback = (profile?.travelAllowance ?? 0) * attendance.length + (profile?.travelAllowanceFixed ?? 0);
   const incentiveAllowanceFallback = profile?.incentiveAllowance ?? 0;
   const bonusesFallback = 
@@ -135,6 +157,8 @@ export default function EmployeeDashboard({ user }: { user: User }) {
         workDays: totalDays,
         regularHours: regularHours,
         overtimeHours: overtimeHours,
+        overtime15Hours: simOT15,
+        overtime20Hours: simOT20,
         baseSalary: baseSalaryFallback,
         regularPay: regularHours * (profile?.hourlyRate ?? 0),
         overtimePay: overtimePayFallback,
@@ -348,9 +372,14 @@ export default function EmployeeDashboard({ user }: { user: User }) {
                 <span className="text-gray-500">Base Salary</span>
                 <span className="font-semibold text-gray-900">LKR {baseSalary.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Overtime Pay ({Math.round(overtimeHours * 100) / 100} hrs)</span>
-                <span className="font-semibold text-gray-900">LKR {Math.round(overtimePay).toLocaleString()}</span>
+              <div className="flex justify-between flex-col gap-0.5">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Overtime Pay ({Math.round(overtimeHours * 100) / 100} hrs)</span>
+                  <span className="font-semibold text-gray-900">LKR {Math.round(overtimePay).toLocaleString()}</span>
+                </div>
+                <div className="text-[10px] text-gray-400 font-mono text-right">
+                  1.5x: {isOfficial ? (officialPayroll.overtime15Hours || 0) : simOT15}h | 2x: {isOfficial ? (officialPayroll.overtime20Hours || 0) : simOT20}h
+                </div>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Travel Allowances</span>

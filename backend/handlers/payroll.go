@@ -31,7 +31,6 @@ func round2(val float64) float64 {
 // calculateEmployeePayroll performs the payroll math for a single employee and month
 func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settings []models.PayrollSettings) (models.Payroll, error) {
 	// Parse settings
-	otMultiplier := getSettingValue(settings, "overtime_multiplier", 1.5)
 	epfEmployeeRate := getSettingValue(settings, "epf_employee_rate", 8.0)
 	epfEmployerRate := getSettingValue(settings, "epf_employer_rate", 12.0)
 	etfRate := getSettingValue(settings, "etf_rate", 3.0)
@@ -53,11 +52,8 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 	workDays := len(attendances)
 	var regularHours float64
 	var overtimeHours float64
-
-	for _, a := range attendances {
-		regularHours += a.RegularHours
-		overtimeHours += a.OvertimeHours
-	}
+	var overtime15Hours float64
+	var overtime20Hours float64
 
 	profile := emp.SalaryProfile
 	if profile == nil {
@@ -65,11 +61,42 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 		profile = &models.SalaryProfile{}
 	}
 
+	for _, a := range attendances {
+		regularHours += a.RegularHours
+		overtimeHours += a.OvertimeHours
+
+		// Calculate 1.5x and 2.0x overtime hours dynamically based on PODUR policy
+		lunchDeductionActive := profile.IsLunchHourDeduction
+		var dailyOT15 float64
+		var dailyOT20 float64
+
+		if lunchDeductionActive {
+			if a.TotalHours > 11 {
+				dailyOT15 = 2.0
+				dailyOT20 = a.TotalHours - 11
+			} else if a.TotalHours > 9 {
+				dailyOT15 = a.TotalHours - 9
+				dailyOT20 = 0.0
+			}
+		} else {
+			if a.TotalHours > 10 {
+				dailyOT15 = 2.0
+				dailyOT20 = a.TotalHours - 10
+			} else if a.TotalHours > 8 {
+				dailyOT15 = a.TotalHours - 8
+				dailyOT20 = 0.0
+			}
+		}
+
+		overtime15Hours += dailyOT15
+		overtime20Hours += dailyOT20
+	}
+
 	baseSalary := profile.BaseSalary
 	hourlyRate := profile.HourlyRate
 
-	// Overtime Pay
-	overtimePay := overtimeHours * hourlyRate * otMultiplier
+	// Overtime Pay calculation with PODUR tiered rates
+	overtimePay := (overtime15Hours * 1.5 * hourlyRate) + (overtime20Hours * 2.0 * hourlyRate)
 
 	// Dynamic Allowances extraction
 	var travelAllowance float64
@@ -133,6 +160,8 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 		WorkDays:             workDays,
 		RegularHours:         round2(regularHours),
 		OvertimeHours:        round2(overtimeHours),
+		Overtime15Hours:      round2(overtime15Hours),
+		Overtime20Hours:      round2(overtime20Hours),
 		BaseSalary:           round2(baseSalary),
 		RegularPay:           round2(regularPay),
 		OvertimePay:          round2(overtimePay),

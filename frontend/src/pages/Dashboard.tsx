@@ -123,7 +123,7 @@ export default function Dashboard() {
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <FileText className="w-4 h-4 text-white" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900">Payroll System</h1>
+            <h1 className="text-xl font-bold text-gray-900">PODUR Payroll</h1>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500 hidden sm:block">{user.email}</span>

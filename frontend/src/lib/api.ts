@@ -75,6 +75,8 @@ export interface Payroll {
   workDays: number;
   regularHours: number;
   overtimeHours: number;
+  overtime15Hours: number;
+  overtime20Hours: number;
   baseSalary: number;
   regularPay: number;
   overtimePay: number;
