@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -70,22 +71,40 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 	// Overtime Pay
 	overtimePay := overtimeHours * hourlyRate * otMultiplier
 
-	// Travel Allowance daily component * workDays + fixed travel allowance
-	travelAllowance := profile.TravelAllowance*float64(workDays) + profile.TravelAllowanceFixed
-	incentiveAllowance := profile.IncentiveAllowance
+	// Dynamic Allowances extraction
+	var travelAllowance float64
+	var incentiveAllowance float64
+	var eidBonus float64
+	var hajBonus float64
+	var poyaBonus float64
+	var targetBonus float64
+	var attendanceBonus float64
+	var otherBonus float64
 
-	// Standard Bonuses
-	eidBonus := profile.EidBonus
-	hajBonus := profile.HajBonus
-	poyaBonus := profile.PoyaBonus
-	targetBonus := profile.TargetBonus
-	attendanceBonus := profile.AttendanceBonus
-
-	// Sum any additional allowances
-	var additionalAllowancesSum float64
 	if profile.AdditionalAllowances != nil {
-		for _, val := range profile.AdditionalAllowances {
-			additionalAllowancesSum += val
+		for key, val := range profile.AdditionalAllowances {
+			lowerKey := strings.ToLower(key)
+			if strings.Contains(lowerKey, "travel") {
+				if strings.Contains(lowerKey, "daily") || strings.Contains(lowerKey, "per day") || strings.Contains(lowerKey, "variable") {
+					travelAllowance += val * float64(workDays)
+				} else {
+					travelAllowance += val
+				}
+			} else if strings.Contains(lowerKey, "eid") {
+				eidBonus += val
+			} else if strings.Contains(lowerKey, "haj") {
+				hajBonus += val
+			} else if strings.Contains(lowerKey, "poya") {
+				poyaBonus += val
+			} else if strings.Contains(lowerKey, "target") {
+				targetBonus += val
+			} else if strings.Contains(lowerKey, "attendance") {
+				attendanceBonus += val
+			} else if strings.Contains(lowerKey, "incentive") || strings.Contains(lowerKey, "performance") {
+				incentiveAllowance += val
+			} else {
+				otherBonus += val
+			}
 		}
 	}
 
@@ -94,7 +113,7 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 
 	// Gross Salary
 	grossSalary := regularPay + overtimePay + travelAllowance + incentiveAllowance +
-		eidBonus + hajBonus + poyaBonus + targetBonus + attendanceBonus + additionalAllowancesSum
+		eidBonus + hajBonus + poyaBonus + targetBonus + attendanceBonus + otherBonus
 
 	// Deductions
 	epf8 := grossSalary * (epfEmployeeRate / 100)
@@ -124,7 +143,7 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 		PoyaBonus:            round2(poyaBonus),
 		TargetBonus:          round2(targetBonus),
 		AttendanceBonus:      round2(attendanceBonus),
-		OtherBonus:           round2(additionalAllowancesSum),
+		OtherBonus:           round2(otherBonus),
 		GrossSalary:          round2(grossSalary),
 		EPF8:                 round2(epf8),
 		EPF12:                round2(epf12),

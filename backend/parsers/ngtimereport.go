@@ -14,7 +14,7 @@ import (
 
 var (
 	dayNames  = map[string]bool{"MON": true, "TUE": true, "WED": true, "THU": true, "FRI": true, "SAT": true, "SUN": true}
-	empIDRe   = regexp.MustCompile(`\((\d+)\)`)
+	empIDRe  = regexp.MustCompile(`\(([^)]+)\)`)
 )
 
 type NGTimeReportParser struct{}
@@ -102,7 +102,7 @@ func (n *NGTimeReportParser) Parse(rows [][]string, db *gorm.DB) (saved int, ski
 
 			timeOut := parseHHMM(currentDate, col[3])
 			lunchDeduction := currentEmployee.SalaryProfile != nil && currentEmployee.SalaryProfile.IsLunchHourDeduction
-			regular, overtime, isHalfDay := splitHours(totalHours, lunchDeduction)
+			regular, overtime, isHalfDay := SplitHours(totalHours, lunchDeduction)
 
 			att := models.Attendance{
 				EmployeeID:    currentEmployee.ID,
@@ -137,7 +137,8 @@ func findEmployee(db *gorm.DB, cell string) (*models.User, error) {
 	empID := m[1]
 
 	var user models.User
-	if err := db.Preload("SalaryProfile").Where("employee_id = ?", empID).First(&user).Error; err != nil {
+	// Check for exact match or suffix match (e.g. searching for "2876" matches "EMP-EMPL-2876")
+	if err := db.Preload("SalaryProfile").Where("employee_id = ? OR employee_id LIKE ?", empID, "%"+empID).First(&user).Error; err != nil {
 		return nil, fmt.Errorf("employee ID %q not found in DB", empID)
 	}
 	return &user, nil
@@ -197,7 +198,7 @@ func parseHHMMtoHours(s string) (float64, error) {
 	return h + m/60, nil
 }
 
-func splitHours(raw float64, lunchDeduction bool) (float64, float64, bool) {
+func SplitHours(raw float64, lunchDeduction bool) (float64, float64, bool) {
 	isHalfDay := raw < 4
 	var regular, overtime float64
 

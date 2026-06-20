@@ -1,6 +1,6 @@
 import { useAuthContext, DecodedIDTokenPayload } from '@asgardeo/auth-react';
 import { useEffect, useState } from 'react';
-import { LogOut, User, Briefcase, Building2, Hash, Shield, Users, FileText, Settings } from 'lucide-react';
+import { LogOut, User, Briefcase, Building2, Hash, Shield, Users, FileText, Settings, BarChart2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useApi } from '@/hooks/useApi';
@@ -10,6 +10,7 @@ import AdminAttendance from '@/components/AdminAttendance';
 import AdminSettings from '@/components/AdminSettings';
 import AdminPayroll from '@/components/AdminPayroll';
 import EmployeeDashboard from '@/components/EmployeeDashboard';
+import ManagerOverview from '@/components/ManagerOverview';
 
 
 interface AsgardeoToken extends DecodedIDTokenPayload {
@@ -163,8 +164,8 @@ export default function Dashboard() {
         </Card>
 
         {/* Role-specific panels */}
-        {user.role === 'ADMIN' && <AdminPanel />}
-        {user.role === 'MANAGER' && <ManagerPanel />}
+        {user.role === 'ADMIN' && <AdminPanel user={user} />}
+        {user.role === 'MANAGER' && <ManagerPanel user={user} />}
         {user.role === 'EMPLOYEE' && <EmployeePanel user={user} />}
       </main>
     </div>
@@ -198,14 +199,15 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<'employees' | 'attendance' | 'payroll' | 'settings'>('employees');
+function AdminPanel({ user }: { user: DBUser }) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'employees' | 'attendance' | 'payroll' | 'settings'>('overview');
 
   return (
     <div className="space-y-6">
       {/* Admin Navigation Tabs */}
       <div className="flex flex-wrap border-b border-gray-200 gap-1 sm:gap-6 bg-white px-4 pt-4 rounded-t-xl border border-gray-100 shadow-sm">
         {[
+          { id: 'overview', label: 'Company Overview', icon: <BarChart2 className="w-4 h-4" /> },
           { id: 'employees', label: 'Manage Employees', icon: <Users className="w-4 h-4" /> },
           { id: 'attendance', label: 'Upload Attendance', icon: <FileText className="w-4 h-4" /> },
           { id: 'payroll', label: 'Run Payroll', icon: <Shield className="w-4 h-4" /> },
@@ -228,6 +230,7 @@ function AdminPanel() {
 
       {/* Tab Content */}
       <div className="bg-white/50 rounded-b-xl border-x border-b border-gray-100 shadow-sm p-6">
+        {activeTab === 'overview' && <ManagerOverview user={user} />}
         {activeTab === 'employees' && <AdminEmployees />}
         {activeTab === 'attendance' && <AdminAttendance />}
         {activeTab === 'payroll' && <AdminPayroll />}
@@ -237,7 +240,7 @@ function AdminPanel() {
   );
 }
 
-function ManagerPanel() {
+function ManagerPanel({ user }: { user: DBUser }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'payroll'>('overview');
 
   return (
@@ -266,20 +269,7 @@ function ManagerPanel() {
 
       {/* Tab Content */}
       <div className="bg-white/50 rounded-b-xl border-x border-b border-gray-100 shadow-sm p-6">
-        {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <PlaceholderCard
-              icon={<Users className="w-6 h-6 text-blue-600" />}
-              title="Team Overview"
-              description="View attendance and payroll summary for your department."
-            />
-            <PlaceholderCard
-              icon={<FileText className="w-6 h-6 text-green-600" />}
-              title="Reports"
-              description="View department-level payroll and attendance reports."
-            />
-          </div>
-        )}
+        {activeTab === 'overview' && <ManagerOverview user={user} />}
         {activeTab === 'attendance' && <AdminAttendance />}
         {activeTab === 'payroll' && <AdminPayroll />}
       </div>
@@ -291,15 +281,3 @@ function EmployeePanel({ user }: { user: DBUser }) {
   return <EmployeeDashboard user={user} />;
 }
 
-function PlaceholderCard({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
-  return (
-    <Card className="p-5 flex flex-col gap-3 border-dashed">
-      <div className="flex items-center gap-3">
-        {icon}
-        <h3 className="font-semibold text-gray-900 text-sm">{title}</h3>
-      </div>
-      <p className="text-sm text-gray-500 flex-1">{description}</p>
-      <span className="text-xs text-gray-400 font-medium">Coming soon</span>
-    </Card>
-  );
-}

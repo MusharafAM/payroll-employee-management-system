@@ -5,7 +5,7 @@ import type { User } from '@/lib/api';
 import { 
   Plus, Search, Edit2, Trash2, X, 
   Briefcase, Building2, Mail, Shield, ShieldAlert, ShieldCheck,
-  DollarSign, Clock, UtensilsCrossed, CalendarDays, Award
+  DollarSign, Clock, UtensilsCrossed, Award
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -28,6 +28,7 @@ interface CreateEmployeePayload {
   targetBonus: number;
   attendanceBonus: number;
   isLunchHourDeduction: boolean;
+  additionalAllowances: Record<string, number>;
 }
 
 interface UpdateEmployeePayload extends Partial<CreateEmployeePayload> {
@@ -43,6 +44,35 @@ export default function AdminEmployees() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<User | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Local state for dynamic additional allowances
+  const [newAllowanceKey, setNewAllowanceKey] = useState('');
+  const [newAllowanceVal, setNewAllowanceVal] = useState('');
+
+  const handleAddAllowance = () => {
+    if (!newAllowanceKey.trim()) return;
+    const val = Number(newAllowanceVal) || 0;
+    setFormData(prev => ({
+      ...prev,
+      additionalAllowances: {
+        ...prev.additionalAllowances,
+        [newAllowanceKey.trim()]: val,
+      }
+    }));
+    setNewAllowanceKey('');
+    setNewAllowanceVal('');
+  };
+
+  const handleRemoveAllowance = (key: string) => {
+    setFormData(prev => {
+      const updated = { ...prev.additionalAllowances };
+      delete updated[key];
+      return {
+        ...prev,
+        additionalAllowances: updated,
+      };
+    });
+  };
 
   // Form states
   const [formData, setFormData] = useState<CreateEmployeePayload>({
@@ -63,6 +93,7 @@ export default function AdminEmployees() {
     targetBonus: 0,
     attendanceBonus: 0,
     isLunchHourDeduction: true,
+    additionalAllowances: {},
   });
 
   // Fetch employees
@@ -139,14 +170,17 @@ export default function AdminEmployees() {
       targetBonus: 0,
       attendanceBonus: 0,
       isLunchHourDeduction: true,
+      additionalAllowances: {},
     });
     setEditingEmployee(null);
     setErrorMsg('');
+    setNewAllowanceKey('');
+    setNewAllowanceVal('');
   };
 
   const handleEditClick = (emp: User) => {
-    setEditingEmployee(emp);
     const profile = emp.salaryProfile;
+    setEditingEmployee(emp);
     setFormData({
       employeeId: emp.employeeId || '',
       email: emp.email || '',
@@ -165,8 +199,11 @@ export default function AdminEmployees() {
       targetBonus: profile?.targetBonus ?? 0,
       attendanceBonus: profile?.attendanceBonus ?? 0,
       isLunchHourDeduction: profile?.isLunchHourDeduction ?? true,
+      additionalAllowances: profile?.additionalAllowances ?? {},
     });
     setErrorMsg('');
+    setNewAllowanceKey('');
+    setNewAllowanceVal('');
     setIsModalOpen(true);
   };
 
@@ -517,104 +554,76 @@ export default function AdminEmployees() {
                     </div>
                   </div>
                 </div>
+              </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Travel Allowance (Variable)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-                      value={formData.travelAllowance}
-                      onChange={e => setFormData({ ...formData, travelAllowance: Number(e.target.value) })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Travel Allowance (Fixed)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-                      value={formData.travelAllowanceFixed}
-                      onChange={e => setFormData({ ...formData, travelAllowanceFixed: Number(e.target.value) })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Incentive Allowance</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-                      value={formData.incentiveAllowance}
-                      onChange={e => setFormData({ ...formData, incentiveAllowance: Number(e.target.value) })}
-                    />
-                  </div>
-                </div>
+              {/* SECTION 3: Custom & Department Allowances */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-bold text-gray-900 border-b pb-2 flex items-center gap-2">
+                  <Award className="w-4 h-4 text-purple-600" />
+                  Custom & Department-Specific Allowances
+                </h4>
+                <p className="text-xs text-gray-400">
+                  Add dynamic allowances (e.g., Night Shift, Sales Commission, Hazard Pay) that are unique to this employee's department.
+                </p>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-                      <CalendarDays className="w-3.5 h-3.5 text-gray-400" /> Eid Festival Bonus
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-                      value={formData.eidBonus}
-                      onChange={e => setFormData({ ...formData, eidBonus: Number(e.target.value) })}
-                    />
+                {/* List current custom allowances */}
+                {Object.keys(formData.additionalAllowances).length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-purple-50/20 border border-purple-100 rounded-lg">
+                    {Object.entries(formData.additionalAllowances).map(([key, val]) => (
+                      <div key={key} className="flex justify-between items-center bg-white px-3 py-2 border border-purple-50 rounded-lg shadow-sm">
+                        <div>
+                          <span className="text-xs font-semibold text-gray-700 block">{key}</span>
+                          <span className="text-sm font-bold text-purple-700">LKR {val.toLocaleString()}</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-full"
+                          onClick={() => handleRemoveAllowance(key)}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-                      <CalendarDays className="w-3.5 h-3.5 text-gray-400" /> Haj Festival Bonus
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-                      value={formData.hajBonus}
-                      onChange={e => setFormData({ ...formData, hajBonus: Number(e.target.value) })}
-                    />
+                ) : (
+                  <div className="text-center py-4 text-gray-400 text-xs border border-dashed rounded-lg">
+                    No custom allowances configured for this profile.
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-                      <CalendarDays className="w-3.5 h-3.5 text-gray-400" /> Poya Day Bonus
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-                      value={formData.poyaBonus}
-                      onChange={e => setFormData({ ...formData, poyaBonus: Number(e.target.value) })}
-                    />
-                  </div>
-                </div>
+                )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-                      <Award className="w-3.5 h-3.5 text-gray-400" /> Performance Target Bonus
-                    </label>
+                {/* Add new custom allowance form controls */}
+                <div className="flex flex-col sm:flex-row items-end gap-3 p-3 bg-gray-50 border border-gray-150 rounded-lg">
+                  <div className="space-y-1 flex-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Allowance Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Sales Commission"
+                      className="w-full px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                      value={newAllowanceKey}
+                      onChange={e => setNewAllowanceKey(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1 sm:w-44">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Amount (LKR)</label>
                     <input
                       type="number"
                       min="0"
-                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-                      value={formData.targetBonus}
-                      onChange={e => setFormData({ ...formData, targetBonus: Number(e.target.value) })}
+                      placeholder="e.g. 15000"
+                      className="w-full px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                      value={newAllowanceVal}
+                      onChange={e => setNewAllowanceVal(e.target.value)}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-                      <Award className="w-3.5 h-3.5 text-gray-400" /> Attendance Consistency Bonus
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-                      value={formData.attendanceBonus}
-                      onChange={e => setFormData({ ...formData, attendanceBonus: Number(e.target.value) })}
-                    />
-                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleAddAllowance}
+                    disabled={!newAllowanceKey.trim()}
+                    className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 h-9 flex items-center justify-center gap-1 font-semibold animate-pulse hover:animate-none"
+                  >
+                    <Plus className="w-4 h-4" /> Add
+                  </Button>
                 </div>
               </div>
 

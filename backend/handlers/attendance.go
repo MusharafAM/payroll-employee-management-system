@@ -1,7 +1,12 @@
 package handlers
 
 import (
+	"io"
+	"math"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -9,6 +14,7 @@ import (
 	"github.com/musharaf/payroll-backend/models"
 	"github.com/musharaf/payroll-backend/parsers"
 	"github.com/xuri/excelize/v2"
+	"gorm.io/gorm"
 )
 
 // UploadAttendance handles POST /api/attendance/upload (multipart form, field "file", optional query "?format=ngtimereport").
@@ -19,6 +25,15 @@ func UploadAttendance(c *gin.Context) {
 		return
 	}
 
+	// Create a temp file to store uploaded content securely
+	tempFile, err := os.CreateTemp("", "attendance-*.xlsx")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create temp file"})
+		return
+	}
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
 	src, err := file.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not open uploaded file"})
@@ -26,7 +41,12 @@ func UploadAttendance(c *gin.Context) {
 	}
 	defer src.Close()
 
-	f, err := excelize.OpenReader(src)
+	if _, err := io.Copy(tempFile, src); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save uploaded file"})
+		return
+	}
+
+	f, err := excelize.OpenFile(tempFile.Name())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid Excel file: " + err.Error()})
 		return
@@ -87,4 +107,122 @@ func GetEmployeeAttendance(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"attendance": records, "count": len(records)})
+}
+
+type ManualAttendanceReq struct {
+	EmployeeID  string   `json:"employeeId" binding:"required"`
+	Date        string   `json:"date" binding:"required"`
+	TimeIn      *string  `json:"timeIn"`
+	TimeOut     *string  `json:"timeOut"`
+	ManualHours *float64 `json:"manualHours"`
+}
+
+// CreateOrUpdateManualAttendance handles POST /api/attendance/manual
+func CreateOrUpdateManualAttendance(c *gin.Context) {
+	var req ManualAttendanceReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	parsedDate, err := time.Parse("2006-01-02", req.Date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format (use YYYY-MM-DD)"})
+		return
+	}
+	parsedDate = parsedDate.UTC().Truncate(24 * time.Hour)
+
+	// Fetch user with salary profile
+	var user models.User
+	if err := database.DB.Preload("SalaryProfile").First(&user, "id = ?", req.EmployeeID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "employee not found"})
+		return
+	}
+
+	var timeInPtr, timeOutPtr *time.Time
+	var totalHours float64
+
+	// If clock times are provided
+	if req.TimeIn != nil && *req.TimeIn != "" && req.TimeOut != nil && *req.TimeOut != "" {
+		inParts := strings.Split(*req.TimeIn, ":")
+		outParts := strings.Split(*req.TimeOut, ":")
+		if len(inParts) != 2 || len(outParts) != 2 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "timeIn and timeOut must be in HH:MM format"})
+			return
+		}
+		inH, err1 := strconv.Atoi(inParts[0])
+		inM, err2 := strconv.Atoi(inParts[1])
+		outH, err3 := strconv.Atoi(outParts[0])
+		outM, err4 := strconv.Atoi(outParts[1])
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid clock times"})
+			return
+		}
+
+		inTime := time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), inH, inM, 0, 0, time.UTC)
+		outTime := time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), outH, outM, 0, 0, time.UTC)
+
+		if outTime.Before(inTime) {
+			outTime = outTime.Add(24 * time.Hour)
+		}
+
+		timeInPtr = &inTime
+		timeOutPtr = &outTime
+		totalHours = outTime.Sub(inTime).Hours()
+	} else if req.ManualHours != nil {
+		totalHours = *req.ManualHours
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "either clock times or manualHours must be provided"})
+		return
+	}
+
+	lunchDeduction := user.SalaryProfile != nil && user.SalaryProfile.IsLunchHourDeduction
+	regular, overtime, isHalfDay := parsers.SplitHours(totalHours, lunchDeduction)
+
+	totalHours = math.Round(totalHours*100) / 100
+
+	att := models.Attendance{
+		EmployeeID:    user.ID,
+		Date:          parsedDate,
+		TimeIn:        timeInPtr,
+		TimeOut:       timeOutPtr,
+		TotalHours:    totalHours,
+		RegularHours:  regular,
+		OvertimeHours: overtime,
+		IsHalfDay:     isHalfDay,
+	}
+
+	var existing models.Attendance
+	err = database.DB.Where("employee_id = ? AND date = ?", user.ID, parsedDate).First(&existing).Error
+	if err == nil {
+		att.ID = existing.ID
+		att.CreatedAt = existing.CreatedAt
+		att.UpdatedAt = time.Now()
+		if err := database.DB.Save(&att).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update attendance record"})
+			return
+		}
+	} else if err == gorm.ErrRecordNotFound {
+		att.CreatedAt = time.Now()
+		att.UpdatedAt = time.Now()
+		if err := database.DB.Create(&att).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create attendance record"})
+			return
+		}
+	} else {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Attendance record saved successfully", "attendance": att})
+}
+
+// DeleteAttendance handles DELETE /api/attendance/:id
+func DeleteAttendance(c *gin.Context) {
+	id := c.Param("id")
+	if err := database.DB.Delete(&models.Attendance{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete attendance record"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Attendance record deleted successfully"})
 }

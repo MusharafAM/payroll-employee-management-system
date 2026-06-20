@@ -34,6 +34,8 @@ func SetupRoutes(router *gin.Engine) {
 	{
 		attendance.POST("/upload", middleware.ManagerOrAdmin(), handlers.UploadAttendance)
 		attendance.GET("/employee/:id", handlers.GetEmployeeAttendance)
+		attendance.POST("/manual", middleware.ManagerOrAdmin(), handlers.CreateOrUpdateManualAttendance)
+		attendance.DELETE("/:id", middleware.ManagerOrAdmin(), handlers.DeleteAttendance)
 	}
 
 	// --- Payroll Settings ---

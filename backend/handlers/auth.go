@@ -46,9 +46,12 @@ func SyncUser(c *gin.Context) {
 			return
 		}
 
-		// Create an empty salary profile for this new user
+		// Create a realistic default salary profile for this new user
 		profile := models.SalaryProfile{
 			UserID:               user.ID,
+			BaseSalary:           85000.0,
+			HourlyRate:           500.0,
+			TravelAllowance:      200.0,
 			IsLunchHourDeduction: true,
 			AdditionalAllowances: models.JSONBMap{},
 		}

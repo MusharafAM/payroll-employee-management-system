@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { downloadPayslipPDF } from '@/lib/pdf';
 
 interface PayrollSetting {
   key: string;
@@ -118,8 +119,54 @@ export default function EmployeeDashboard({ user }: { user: User }) {
     }
   };
 
-  const downloadPayslip = () => {
-    alert(`Downloaded payslip PDF for ${user.name} (${selectedMonth}) successfully!`);
+  const downloadPayslip = async () => {
+    let payrollToDownload: Payroll;
+
+    if (isOfficial && officialPayroll) {
+      payrollToDownload = officialPayroll;
+    } else {
+      const epfEmployerRate = settings.find(s => s.key === 'epf_employer_rate')?.value ?? 12.0;
+      const etfRate = settings.find(s => s.key === 'etf_rate')?.value ?? 3.0;
+
+      payrollToDownload = {
+        id: 'simulated',
+        employeeId: user.id,
+        month: selectedMonth,
+        workDays: totalDays,
+        regularHours: regularHours,
+        overtimeHours: overtimeHours,
+        baseSalary: baseSalaryFallback,
+        regularPay: regularHours * (profile?.hourlyRate ?? 0),
+        overtimePay: overtimePayFallback,
+        lunchIncentive: 0,
+        performanceAllowance: incentiveAllowanceFallback,
+        travelAllowance: travelAllowanceFallback,
+        eidBonus: profile?.eidBonus ?? 0,
+        hajBonus: profile?.hajBonus ?? 0,
+        poyaBonus: profile?.poyaBonus ?? 0,
+        targetBonus: profile?.targetBonus ?? 0,
+        attendanceBonus: profile?.attendanceBonus ?? 0,
+        otherBonus: 0,
+        grossSalary: grossSalaryFallback,
+        epf8: epfDeductionFallback,
+        epf12: grossSalaryFallback * (epfEmployerRate / 100),
+        etf3: grossSalaryFallback * (etfRate / 100),
+        salaryAdvance: 0,
+        loan: 0,
+        totalDeductions: epfDeductionFallback,
+        netSalary: netSalaryFallback,
+        payslipUrl: '',
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    await downloadPayslipPDF(
+      payrollToDownload,
+      user.name,
+      user.employeeId,
+      user.department || 'Operations',
+      user.position || 'Executive'
+    );
   };
 
   return (

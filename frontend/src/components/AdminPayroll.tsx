@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { downloadPayslipPDF } from '@/lib/pdf';
 
 
 export default function AdminPayroll() {
@@ -71,8 +72,12 @@ export default function AdminPayroll() {
     }
   };
 
-  const downloadPayslipMock = (ps: Payroll) => {
-    alert(`Downloaded payslip PDF for ${ps.employee?.name || 'Employee'} (${selectedMonth}) successfully!`);
+  const handleDownloadPayslip = async (ps: Payroll) => {
+    const empName = ps.employee?.name || 'Employee';
+    const empId = ps.employee?.employeeId || 'Unknown';
+    const department = ps.employee?.department || 'Operations';
+    const position = ps.employee?.position || 'Executive';
+    await downloadPayslipPDF(ps, empName, empId, department, position);
   };
 
   return (
@@ -236,7 +241,7 @@ export default function AdminPayroll() {
                             size="sm" 
                             variant="ghost" 
                             className="h-7 w-7 p-0 rounded-full hover:bg-gray-100 text-blue-600"
-                            onClick={() => downloadPayslipMock(ps)}
+                            onClick={() => handleDownloadPayslip(ps)}
                             title="Generate PDF Payslip"
                           >
                             <Download className="w-3.5 h-3.5" />

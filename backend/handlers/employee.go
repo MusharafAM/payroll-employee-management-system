@@ -33,23 +33,24 @@ func GetEmployee(c *gin.Context) {
 }
 
 type createEmployeeRequest struct {
-	EmployeeID           string      `json:"employeeId" binding:"required"`
-	Email                string      `json:"email" binding:"required,email"`
-	Name                 string      `json:"name" binding:"required"`
-	Role                 models.Role `json:"role"`
-	Department           string      `json:"department"`
-	Position             string      `json:"position"`
-	HourlyRate           float64     `json:"hourlyRate"`
-	BaseSalary           float64     `json:"baseSalary"`
-	TravelAllowance      float64     `json:"travelAllowance"`
-	TravelAllowanceFixed float64     `json:"travelAllowanceFixed"`
-	IncentiveAllowance   float64     `json:"incentiveAllowance"`
-	EidBonus             float64     `json:"eidBonus"`
-	HajBonus             float64     `json:"hajBonus"`
-	PoyaBonus            float64     `json:"poyaBonus"`
-	TargetBonus          float64     `json:"targetBonus"`
-	AttendanceBonus      float64     `json:"attendanceBonus"`
-	IsLunchHourDeduction bool        `json:"isLunchHourDeduction"`
+	EmployeeID           string          `json:"employeeId" binding:"required"`
+	Email                string          `json:"email" binding:"required,email"`
+	Name                 string          `json:"name" binding:"required"`
+	Role                 models.Role     `json:"role"`
+	Department           string          `json:"department"`
+	Position             string          `json:"position"`
+	HourlyRate           float64         `json:"hourlyRate"`
+	BaseSalary           float64         `json:"baseSalary"`
+	TravelAllowance      float64         `json:"travelAllowance"`
+	TravelAllowanceFixed float64         `json:"travelAllowanceFixed"`
+	IncentiveAllowance   float64         `json:"incentiveAllowance"`
+	EidBonus             float64         `json:"eidBonus"`
+	HajBonus             float64         `json:"hajBonus"`
+	PoyaBonus            float64         `json:"poyaBonus"`
+	TargetBonus          float64         `json:"targetBonus"`
+	AttendanceBonus      float64         `json:"attendanceBonus"`
+	IsLunchHourDeduction bool            `json:"isLunchHourDeduction"`
+	AdditionalAllowances models.JSONBMap `json:"additionalAllowances"`
 }
 
 // CreateEmployee creates a new employee and their salary profile in one transaction.
@@ -106,10 +107,17 @@ func CreateEmployee(c *gin.Context) {
 			if profileErr != nil {
 				// Doesn't exist - create
 				profile.UserID = employee.ID
-				profile.AdditionalAllowances = models.JSONBMap{}
+				profile.AdditionalAllowances = req.AdditionalAllowances
+				if profile.AdditionalAllowances == nil {
+					profile.AdditionalAllowances = models.JSONBMap{}
+				}
 				return tx.Create(&profile).Error
 			} else {
 				// Exists - save
+				profile.AdditionalAllowances = req.AdditionalAllowances
+				if profile.AdditionalAllowances == nil {
+					profile.AdditionalAllowances = models.JSONBMap{}
+				}
 				return tx.Save(&profile).Error
 			}
 		} else {
@@ -140,7 +148,10 @@ func CreateEmployee(c *gin.Context) {
 				TargetBonus:          req.TargetBonus,
 				AttendanceBonus:      req.AttendanceBonus,
 				IsLunchHourDeduction: req.IsLunchHourDeduction,
-				AdditionalAllowances: models.JSONBMap{},
+				AdditionalAllowances: req.AdditionalAllowances,
+			}
+			if profile.AdditionalAllowances == nil {
+				profile.AdditionalAllowances = models.JSONBMap{}
 			}
 			return tx.Create(&profile).Error
 		}
@@ -163,23 +174,24 @@ func CreateEmployee(c *gin.Context) {
 }
 
 type updateEmployeeRequest struct {
-	EmployeeID           *string      `json:"employeeId"`
-	Name                 *string      `json:"name"`
-	Role                 *models.Role `json:"role"`
-	Department           *string      `json:"department"`
-	Position             *string      `json:"position"`
-	IsActive             *bool        `json:"isActive"`
-	HourlyRate           *float64     `json:"hourlyRate"`
-	BaseSalary           *float64     `json:"baseSalary"`
-	TravelAllowance      *float64     `json:"travelAllowance"`
-	TravelAllowanceFixed *float64     `json:"travelAllowanceFixed"`
-	IncentiveAllowance   *float64     `json:"incentiveAllowance"`
-	EidBonus             *float64     `json:"eidBonus"`
-	HajBonus             *float64     `json:"hajBonus"`
-	PoyaBonus            *float64     `json:"poyaBonus"`
-	TargetBonus          *float64     `json:"targetBonus"`
-	AttendanceBonus      *float64     `json:"attendanceBonus"`
-	IsLunchHourDeduction *bool        `json:"isLunchHourDeduction"`
+	EmployeeID           *string          `json:"employeeId"`
+	Name                 *string          `json:"name"`
+	Role                 *models.Role     `json:"role"`
+	Department           *string          `json:"department"`
+	Position             *string          `json:"position"`
+	IsActive             *bool            `json:"isActive"`
+	HourlyRate           *float64         `json:"hourlyRate"`
+	BaseSalary           *float64         `json:"baseSalary"`
+	TravelAllowance      *float64         `json:"travelAllowance"`
+	TravelAllowanceFixed *float64         `json:"travelAllowanceFixed"`
+	IncentiveAllowance   *float64         `json:"incentiveAllowance"`
+	EidBonus             *float64         `json:"eidBonus"`
+	HajBonus             *float64         `json:"hajBonus"`
+	PoyaBonus            *float64         `json:"poyaBonus"`
+	TargetBonus          *float64         `json:"targetBonus"`
+	AttendanceBonus      *float64         `json:"attendanceBonus"`
+	IsLunchHourDeduction *bool            `json:"isLunchHourDeduction"`
+	AdditionalAllowances *models.JSONBMap `json:"additionalAllowances"`
 }
 
 // UpdateEmployee updates identity and/or salary profile fields. Admin only.
@@ -227,6 +239,7 @@ func UpdateEmployee(c *gin.Context) {
 	if req.TargetBonus != nil          { profileUpdates["target_bonus"] = *req.TargetBonus }
 	if req.AttendanceBonus != nil      { profileUpdates["attendance_bonus"] = *req.AttendanceBonus }
 	if req.IsLunchHourDeduction != nil { profileUpdates["is_lunch_hour_deduction"] = *req.IsLunchHourDeduction }
+	if req.AdditionalAllowances != nil { profileUpdates["additional_allowances"] = *req.AdditionalAllowances }
 
 	if len(profileUpdates) > 0 {
 		if employee.SalaryProfile == nil {
