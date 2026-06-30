@@ -90,7 +90,7 @@ type SalaryProfile struct {
 }
 
 // PayrollSettings holds admin-configurable payroll rules as key-value pairs.
-// Examples: overtime_multiplier=1.5, epf_employee_rate=8.0
+// Examples: ot_tier1_multiplier=1.5, epf_employee_rate=8.0
 type PayrollSettings struct {
 	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	Key         string    `gorm:"uniqueIndex;not null"     json:"key"`
@@ -98,6 +98,15 @@ type PayrollSettings struct {
 	Description string    `json:"description"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// CompanyProfile holds company-wide identity and configuration (single row).
+type CompanyProfile struct {
+	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name       string    `gorm:"not null;default:'My Company'" json:"name"`
+	LogoURL    string    `json:"logoUrl"`
+	ParserType string    `gorm:"not null;default:'auto'" json:"parserType"` // auto | podur_xml | ngtimereport
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 type Attendance struct {

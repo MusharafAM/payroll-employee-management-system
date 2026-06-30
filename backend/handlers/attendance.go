@@ -91,10 +91,19 @@ func UploadAttendance(c *gin.Context) {
 
 	// 1. Check if format is explicitly chosen in the request query parameter
 	format := c.Query("format")
+
+	// 2. Fall back to the company-configured parser type if not explicitly requested
+	if format == "" {
+		var cp models.CompanyProfile
+		if database.DB.First(&cp).Error == nil && cp.ParserType != "auto" && cp.ParserType != "" {
+			format = cp.ParserType
+		}
+	}
+
 	if format != "" {
 		parser, err = parsers.Get(format)
 	} else {
-		// 2. Otherwise, auto-detect the parser from the spreadsheet content
+		// 3. Auto-detect from spreadsheet content
 		parser, err = parsers.Detect(rows)
 	}
 

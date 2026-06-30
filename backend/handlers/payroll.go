@@ -31,12 +31,12 @@ func round2(val float64) float64 {
 	return math.Round(val*100) / 100
 }
 
-// Helper to round floats up to the nearest 10 Rupees (matching existing system's standardizeSalaryText)
-func roundUp10(val float64) float64 {
-	if val <= 0 {
-		return 0
+// roundToNearest rounds val up to the nearest n (e.g. n=10 → nearest LKR 10, n=1 → no rounding).
+func roundToNearest(val float64, n float64) float64 {
+	if val <= 0 || n <= 0 {
+		return math.Max(0, val)
 	}
-	return math.Ceil(val/10.0) * 10.0
+	return math.Ceil(val/n) * n
 }
 
 // calculateEmployeePayroll performs the payroll math for a single employee and month
@@ -45,6 +45,14 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 	epfEmployeeRate := getSettingValue(settings, "epf_employee_rate", 8.0)
 	epfEmployerRate := getSettingValue(settings, "epf_employer_rate", 12.0)
 	etfRate := getSettingValue(settings, "etf_rate", 3.0)
+	regularHoursPerDay := getSettingValue(settings, "regular_hours_per_day", 8.0)
+	lunchHourOffset := getSettingValue(settings, "lunch_hour_offset", 1.0)
+	tier1Multiplier := getSettingValue(settings, "ot_tier1_multiplier", 1.5)
+	tier2Multiplier := getSettingValue(settings, "ot_tier2_multiplier", 2.0)
+	tier1Window := getSettingValue(settings, "ot_tier1_window_hours", 2.0)
+	lunchIncentivePerDay := getSettingValue(settings, "lunch_incentive_per_day", 0.5)
+	roundNearest := getSettingValue(settings, "round_to_nearest", 10.0)
+	rnd := func(v float64) float64 { return roundToNearest(v, roundNearest) }
 
 	// Fetch attendances for this employee in the given month
 	var attendances []models.Attendance
@@ -69,52 +77,42 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 
 	profile := emp.SalaryProfile
 	if profile == nil {
-		// Default empty profile fallback
 		profile = &models.SalaryProfile{}
 	}
 
 	lunchDeductionActive := profile.IsLunchHourDeduction
 
+	// OT threshold: shift up by lunchHourOffset when lunch deduction is active
+	otThreshold := regularHoursPerDay
+	if lunchDeductionActive {
+		otThreshold += lunchHourOffset
+	}
+	tier2Start := otThreshold + tier1Window
+
 	for _, a := range attendances {
 		regularHours += a.RegularHours
 		overtimeHours += a.OvertimeHours
 
-		// Calculate 1.5x and 2.0x overtime hours dynamically based on PODUR policy
-		var dailyOT15 float64
-		var dailyOT20 float64
-
-		if lunchDeductionActive {
-			if a.TotalHours > 11 {
-				dailyOT15 = 2.0
-				dailyOT20 = a.TotalHours - 11
-			} else if a.TotalHours > 9 {
-				dailyOT15 = a.TotalHours - 9
-				dailyOT20 = 0.0
-			}
-		} else {
-			if a.TotalHours > 10 {
-				dailyOT15 = 2.0
-				dailyOT20 = a.TotalHours - 10
-			} else if a.TotalHours > 8 {
-				dailyOT15 = a.TotalHours - 8
-				dailyOT20 = 0.0
-			}
+		var dailyOT15, dailyOT20 float64
+		if a.TotalHours > tier2Start {
+			dailyOT15 = tier1Window
+			dailyOT20 = a.TotalHours - tier2Start
+		} else if a.TotalHours > otThreshold {
+			dailyOT15 = a.TotalHours - otThreshold
 		}
 
 		overtime15Hours += dailyOT15
 		overtime20Hours += dailyOT20
 
-		// Accumulate lunch incentive hours (0.5 hours per work day if lunch hour deduction is active)
 		if a.TotalHours > 0 && lunchDeductionActive {
-			lunchIncentiveHours += 0.5
+			lunchIncentiveHours += lunchIncentivePerDay
 		}
 	}
 
 	baseSalary := profile.BaseSalary
 	hourlyRate := profile.HourlyRate
 
-	// Overtime Pay calculation with PODUR tiered rates
-	overtimePay := (overtime15Hours * 1.5 * hourlyRate) + (overtime20Hours * 2.0 * hourlyRate)
+	overtimePay := (overtime15Hours * tier1Multiplier * hourlyRate) + (overtime20Hours * tier2Multiplier * hourlyRate)
 
 	// Lunch Incentive calculation
 	lunchIncentive := lunchIncentiveHours * hourlyRate
@@ -188,37 +186,37 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 		loanDeduction = math.Min(activeLoan.MonthlyInstallment, activeLoan.RemainingBalance)
 	}
 
-	// Round up all monetary values to the nearest 10 Rupees
-	baseSalaryRounded := roundUp10(baseSalary)
-	regularPayRounded := roundUp10(regularPay)
-	overtimePayRounded := roundUp10(overtimePay)
-	travelAllowanceRounded := roundUp10(travelAllowance)
-	performanceAllowanceRounded := roundUp10(performanceAllowance)
-	lunchIncentiveRounded := roundUp10(lunchIncentive)
-	eidBonusRounded := roundUp10(eidBonus)
-	hajBonusRounded := roundUp10(hajBonus)
-	poyaBonusRounded := roundUp10(poyaBonus)
-	targetBonusRounded := roundUp10(targetBonus)
-	attendanceBonusRounded := roundUp10(attendanceBonus)
-	otherBonusRounded := roundUp10(otherBonus)
+	// Round all monetary values according to the round_to_nearest setting
+	baseSalaryRounded := rnd(baseSalary)
+	regularPayRounded := rnd(regularPay)
+	overtimePayRounded := rnd(overtimePay)
+	travelAllowanceRounded := rnd(travelAllowance)
+	performanceAllowanceRounded := rnd(performanceAllowance)
+	lunchIncentiveRounded := rnd(lunchIncentive)
+	eidBonusRounded := rnd(eidBonus)
+	hajBonusRounded := rnd(hajBonus)
+	poyaBonusRounded := rnd(poyaBonus)
+	targetBonusRounded := rnd(targetBonus)
+	attendanceBonusRounded := rnd(attendanceBonus)
+	otherBonusRounded := rnd(otherBonus)
 
 	grossSalary := regularPayRounded + overtimePayRounded + travelAllowanceRounded +
 		performanceAllowanceRounded + lunchIncentiveRounded + eidBonusRounded +
 		hajBonusRounded + poyaBonusRounded + targetBonusRounded + attendanceBonusRounded +
 		otherBonusRounded
-	grossSalaryRounded := roundUp10(grossSalary)
+	grossSalaryRounded := rnd(grossSalary)
 
-	epf8Rounded := roundUp10(epf8)
-	epf12Rounded := roundUp10(epf12)
-	etf3Rounded := roundUp10(etf3)
-	salaryAdvanceRounded := roundUp10(salaryAdvance)
-	loanRounded := roundUp10(loanDeduction)
+	epf8Rounded := rnd(epf8)
+	epf12Rounded := rnd(epf12)
+	etf3Rounded := rnd(etf3)
+	salaryAdvanceRounded := rnd(salaryAdvance)
+	loanRounded := rnd(loanDeduction)
 
 	totalDeductions := epf8Rounded + salaryAdvanceRounded + loanRounded
-	totalDeductionsRounded := roundUp10(totalDeductions)
+	totalDeductionsRounded := rnd(totalDeductions)
 
 	netSalary := grossSalaryRounded - totalDeductionsRounded
-	netSalaryRounded := roundUp10(netSalary)
+	netSalaryRounded := rnd(netSalary)
 
 	return models.Payroll{
 		EmployeeID:           emp.ID,

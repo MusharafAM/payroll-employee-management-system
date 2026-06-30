@@ -57,6 +57,14 @@ func SetupRoutes(router *gin.Engine) {
 		loans.DELETE("/:id", middleware.AdminOnly(), handlers.DeleteLoan)
 	}
 
+	// --- Company Profile ---
+	company := api.Group("/company-profile")
+	company.Use(middleware.AuthMiddleware())
+	{
+		company.GET("", middleware.ManagerOrAdmin(), handlers.GetCompanyProfile)
+		company.PUT("", middleware.AdminOnly(), handlers.UpdateCompanyProfile)
+	}
+
 	// --- Payroll Settings ---
 	settings := api.Group("/payroll-settings")
 	settings.Use(middleware.AuthMiddleware())
