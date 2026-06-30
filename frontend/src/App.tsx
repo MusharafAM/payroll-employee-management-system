@@ -1,7 +1,13 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useOutletContext } from 'react-router-dom';
 import { useAuthContext } from '@asgardeo/auth-react';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import AdminEmployees from './components/AdminEmployees';
+import AdminAttendance from './components/AdminAttendance';
+import AdminPayroll from './components/AdminPayroll';
+import AdminSettings from './components/AdminSettings';
+import ManagerOverview from './components/ManagerOverview';
+import type { User as DBUser } from './lib/api';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { state } = useAuthContext();
@@ -25,6 +31,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Reads user from Dashboard's outlet context and passes to ManagerOverview
+function OverviewOutlet() {
+  const { user } = useOutletContext<{ user: DBUser }>();
+  return <ManagerOverview user={user} />;
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -37,7 +49,14 @@ function App() {
               <Dashboard />
             </ProtectedRoute>
           }
-        />
+        >
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview"    element={<OverviewOutlet />} />
+          <Route path="employees"   element={<AdminEmployees />} />
+          <Route path="attendance"  element={<AdminAttendance />} />
+          <Route path="payroll"     element={<AdminPayroll />} />
+          <Route path="settings"    element={<AdminSettings />} />
+        </Route>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

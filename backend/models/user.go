@@ -115,6 +115,29 @@ type Attendance struct {
 	UpdatedAt     time.Time  `json:"updatedAt"`
 }
 
+type SalaryAdvance struct {
+	ID         string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
+	EmployeeID string    `gorm:"not null;index"                                  json:"employeeId"`
+	Month      string    `gorm:"not null"                                        json:"month"`
+	Amount     float64   `gorm:"default:0"                                       json:"amount"`
+	Note       string    `json:"note"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+type Loan struct {
+	ID                 string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
+	EmployeeID         string    `gorm:"not null;index"                                  json:"employeeId"`
+	TotalAmount        float64   `gorm:"default:0"                                       json:"totalAmount"`
+	MonthlyInstallment float64   `gorm:"default:0"                                       json:"monthlyInstallment"`
+	RemainingBalance   float64   `gorm:"default:0"                                       json:"remainingBalance"`
+	StartMonth         string    `gorm:"not null"                                        json:"startMonth"`
+	Status             string    `gorm:"default:'active'"                                json:"status"` // active | paid_off
+	Note               string    `json:"note"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+}
+
 type Payroll struct {
 	ID         string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
 	EmployeeID string `gorm:"not null"                                       json:"employeeId"`

@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from '@/hooks/useApi';
 import type { User, Payroll } from '@/lib/api';
-import { 
-  Calculator, FileSpreadsheet, Download, Save, CheckCircle2
+import {
+  Calculator, FileSpreadsheet, Download, Save, CheckCircle2, Mail
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { downloadPayslipPDF } from '@/lib/pdf';
+import { downloadPayslipPDF, generatePayslipPDFBlob } from '@/lib/pdf';
 
 
 export default function AdminPayroll() {
@@ -16,6 +16,7 @@ export default function AdminPayroll() {
   const [processing, setProcessing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [emailingId, setEmailingId] = useState<string | null>(null);
   const [payrollSummary, setPayrollSummary] = useState<{
     totalGross: number;
     totalNet: number;
@@ -78,6 +79,36 @@ export default function AdminPayroll() {
     const department = ps.employee?.department || 'Operations';
     const position = ps.employee?.position || 'Executive';
     await downloadPayslipPDF(ps, empName, empId, department, position);
+  };
+
+  const handleEmailPayslip = async (ps: Payroll) => {
+    const toEmail = ps.employee?.email;
+    if (!toEmail) {
+      alert('No email address on file for this employee.');
+      return;
+    }
+    const empName = ps.employee?.name || 'Employee';
+    const empId = ps.employee?.employeeId || 'Unknown';
+    const department = ps.employee?.department || 'Operations';
+    const position = ps.employee?.position || 'Executive';
+
+    setEmailingId(ps.employeeId);
+    try {
+      const blob = await generatePayslipPDFBlob(ps, empName, empId, department, position);
+      const form = new FormData();
+      form.append('payslip', blob, `Payslip_${empName}_${ps.month}.pdf`);
+      form.append('email', toEmail);
+      form.append('name', empName);
+      form.append('month', ps.month);
+      await api.post('/payroll/email-payslip', form);
+      alert(`Payslip emailed to ${toEmail}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('Email payslip error:', err);
+      alert('Failed to email payslip:\n\n' + msg);
+    } finally {
+      setEmailingId(null);
+    }
   };
 
   return (
@@ -237,15 +268,30 @@ export default function AdminPayroll() {
                           LKR {(ps.netSalary || 0).toLocaleString()}
                         </td>
                         <td className="px-6 py-3.5 text-center">
-                          <Button 
-                            size="sm" 
-                            variant="ghost" 
-                            className="h-7 w-7 p-0 rounded-full hover:bg-gray-100 text-blue-600"
-                            onClick={() => handleDownloadPayslip(ps)}
-                            title="Generate PDF Payslip"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </Button>
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 rounded-full hover:bg-gray-100 text-blue-600"
+                              onClick={() => handleDownloadPayslip(ps)}
+                              title="Download PDF Payslip"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 rounded-full hover:bg-gray-100 text-emerald-600"
+                              onClick={() => handleEmailPayslip(ps)}
+                              disabled={emailingId === ps.employeeId}
+                              title={ps.employee?.email ? `Email payslip to ${ps.employee.email}` : 'No email on file'}
+                            >
+                              {emailingId === ps.employeeId
+                                ? <div className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent border-emerald-600 animate-spin" />
+                                : <Mail className="w-3.5 h-3.5" />
+                              }
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );

@@ -48,6 +48,8 @@ func Migrate() {
 		&models.PayrollSettings{},
 		&models.Attendance{},
 		&models.Payroll{},
+		&models.SalaryAdvance{},
+		&models.Loan{},
 	)
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)

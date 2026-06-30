@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/hooks/useApi';
 import type { User } from '@/lib/api';
-import { 
-  Plus, Search, Edit2, Trash2, X, 
+import {
+  Plus, Search, Edit2, Trash2, X,
   Briefcase, Building2, Mail, Shield, ShieldAlert, ShieldCheck,
-  DollarSign, Clock, UtensilsCrossed, Award
+  DollarSign, Clock, UtensilsCrossed, Award, Wallet
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import DeductionsModal from '@/components/DeductionsModal';
 
 interface CreateEmployeePayload {
   employeeId: string;
@@ -43,6 +44,7 @@ export default function AdminEmployees() {
   const [deptFilter, setDeptFilter] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<User | null>(null);
+  const [deductionsEmployee, setDeductionsEmployee] = useState<User | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
 
   // Local state for dynamic additional allowances
@@ -237,6 +239,12 @@ export default function AdminEmployees() {
 
   return (
     <div className="space-y-6">
+      {deductionsEmployee && (
+        <DeductionsModal
+          employee={deductionsEmployee}
+          onClose={() => setDeductionsEmployee(null)}
+        />
+      )}
       {/* Search & Actions Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
         <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
@@ -378,6 +386,13 @@ export default function AdminEmployees() {
                             title="Edit Employee & Salary Profile"
                           >
                             <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setDeductionsEmployee(emp)}
+                            className="p-1.5 hover:bg-amber-50 text-gray-600 hover:text-amber-600 rounded-lg transition-colors"
+                            title="Manage Advances & Loans"
+                          >
+                            <Wallet className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDelete(emp.id)}

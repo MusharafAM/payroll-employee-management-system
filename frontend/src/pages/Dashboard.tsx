@@ -1,23 +1,32 @@
 import { useAuthContext, DecodedIDTokenPayload } from '@asgardeo/auth-react';
 import { useEffect, useState } from 'react';
+import { NavLink, Outlet } from 'react-router-dom';
 import { LogOut, User, Briefcase, Building2, Hash, Shield, Users, FileText, Settings, BarChart2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useApi } from '@/hooks/useApi';
 import type { User as DBUser } from '@/lib/api';
-import AdminEmployees from '@/components/AdminEmployees';
-import AdminAttendance from '@/components/AdminAttendance';
-import AdminSettings from '@/components/AdminSettings';
-import AdminPayroll from '@/components/AdminPayroll';
 import EmployeeDashboard from '@/components/EmployeeDashboard';
-import ManagerOverview from '@/components/ManagerOverview';
-
 
 interface AsgardeoToken extends DecodedIDTokenPayload {
   groups?: string[];
 }
 
 type SyncState = 'idle' | 'syncing' | 'done' | 'error';
+
+const ADMIN_TABS = [
+  { path: 'overview',    label: 'Company Overview',   icon: <BarChart2 className="w-4 h-4" /> },
+  { path: 'employees',   label: 'Manage Employees',   icon: <Users className="w-4 h-4" /> },
+  { path: 'attendance',  label: 'Upload Attendance',  icon: <FileText className="w-4 h-4" /> },
+  { path: 'payroll',     label: 'Run Payroll',        icon: <Shield className="w-4 h-4" /> },
+  { path: 'settings',   label: 'Payroll Settings',   icon: <Settings className="w-4 h-4" /> },
+];
+
+const MANAGER_TABS = [
+  { path: 'overview',   label: 'Team Overview',      icon: <Users className="w-4 h-4" /> },
+  { path: 'attendance', label: 'Upload Attendance',  icon: <FileText className="w-4 h-4" /> },
+  { path: 'payroll',    label: 'Run Payroll',        icon: <Shield className="w-4 h-4" /> },
+];
 
 export default function Dashboard() {
   const { state, signOut, getDecodedIDToken } = useAuthContext();
@@ -29,7 +38,6 @@ export default function Dashboard() {
 
   const hasDevToken = !!localStorage.getItem('dev_token');
 
-  // On first authenticated load: sync the user to our DB, then fetch their record.
   useEffect(() => {
     if ((!state.isAuthenticated && !hasDevToken) || syncState !== 'idle') return;
 
@@ -38,7 +46,7 @@ export default function Dashboard() {
       try {
         let email = '';
         let name = '';
-        
+
         if (hasDevToken) {
           const token = localStorage.getItem('dev_token') || '';
           if (token.startsWith('dev-token-email:')) {
@@ -61,17 +69,13 @@ export default function Dashboard() {
           name = (decoded.name || decoded.username || email) as string;
         }
 
-        // Create / update user in DB (role is read from the JWT groups claim by the backend)
         await api.post('/auth/sync-user', { email, name });
-
-        // Fetch the full DB record
         const { data } = await api.get<{ user: DBUser }>('/auth/me');
         setDbUser(data.user);
         setSyncState('done');
       } catch (err: unknown) {
         console.error('Failed to sync user:', err);
         const msg = err instanceof Error ? err.message : String(err);
-        // axios wraps HTTP errors — try to get the response status
         const axiosErr = err as { response?: { status: number; data?: { error?: string } } };
         if (axiosErr.response) {
           const status = axiosErr.response.status;
@@ -87,7 +91,6 @@ export default function Dashboard() {
     syncAndFetch();
   }, [state.isAuthenticated, hasDevToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // --- Loading ---
   if (syncState === 'idle' || syncState === 'syncing') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -99,7 +102,6 @@ export default function Dashboard() {
     );
   }
 
-  // --- Error ---
   if (syncState === 'error') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -113,6 +115,15 @@ export default function Dashboard() {
   }
 
   const user = dbUser!;
+
+  const handleSignOut = () => {
+    if (localStorage.getItem('dev_token')) {
+      localStorage.removeItem('dev_token');
+      window.location.href = '/login';
+    } else {
+      signOut();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -128,17 +139,10 @@ export default function Dashboard() {
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500 hidden sm:block">{user.email}</span>
             <RoleBadge role={user.role} />
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => {
-                if (localStorage.getItem('dev_token')) {
-                  localStorage.removeItem('dev_token');
-                  window.location.href = '/login';
-                } else {
-                  signOut();
-                }
-              }} 
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSignOut}
               className="flex items-center gap-2"
             >
               <LogOut className="w-4 h-4" />
@@ -156,23 +160,46 @@ export default function Dashboard() {
             Welcome back, {user.name}!
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <InfoCell icon={<User className="w-4 h-4" />} label="Full Name" value={user.name} />
-            <InfoCell icon={<Hash className="w-4 h-4" />} label="Employee ID" value={user.employeeId} />
-            <InfoCell icon={<Building2 className="w-4 h-4" />} label="Department" value={user.department || '—'} />
-            <InfoCell icon={<Briefcase className="w-4 h-4" />} label="Position" value={user.position || '—'} />
+            <InfoCell icon={<User className="w-4 h-4" />}      label="Full Name"    value={user.name} />
+            <InfoCell icon={<Hash className="w-4 h-4" />}      label="Employee ID"  value={user.employeeId} />
+            <InfoCell icon={<Building2 className="w-4 h-4" />} label="Department"   value={user.department || '—'} />
+            <InfoCell icon={<Briefcase className="w-4 h-4" />} label="Position"     value={user.position || '—'} />
           </div>
         </Card>
 
-        {/* Role-specific panels */}
-        {user.role === 'ADMIN' && <AdminPanel user={user} />}
-        {user.role === 'MANAGER' && <ManagerPanel user={user} />}
-        {user.role === 'EMPLOYEE' && <EmployeePanel user={user} />}
+        {/* EMPLOYEE: render their own view directly — no tabs */}
+        {user.role === 'EMPLOYEE' && <EmployeeDashboard user={user} />}
+
+        {/* ADMIN / MANAGER: tab nav + routed content */}
+        {(user.role === 'ADMIN' || user.role === 'MANAGER') && (
+          <div className="space-y-0">
+            <div className="flex flex-wrap border-b border-gray-200 gap-1 sm:gap-6 bg-white px-4 pt-4 rounded-t-xl border border-gray-100 shadow-sm">
+              {(user.role === 'ADMIN' ? ADMIN_TABS : MANAGER_TABS).map((tab) => (
+                <NavLink
+                  key={tab.path}
+                  to={`/dashboard/${tab.path}`}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 pb-4 px-2 text-sm font-semibold border-b-2 transition-all ${
+                      isActive
+                        ? 'border-blue-600 text-blue-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
+                    }`
+                  }
+                >
+                  {tab.icon}
+                  {tab.label}
+                </NavLink>
+              ))}
+            </div>
+            <div className="bg-white/50 rounded-b-xl border-x border-b border-gray-100 shadow-sm p-6">
+              <Outlet context={{ user }} />
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
 }
-
-// ---- Sub-components ----
 
 function InfoCell({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
@@ -188,8 +215,8 @@ function InfoCell({ icon, label, value }: { icon: React.ReactNode; label: string
 
 function RoleBadge({ role }: { role: string }) {
   const styles: Record<string, string> = {
-    ADMIN: 'bg-red-100 text-red-700',
-    MANAGER: 'bg-purple-100 text-purple-700',
+    ADMIN:    'bg-red-100 text-red-700',
+    MANAGER:  'bg-purple-100 text-purple-700',
     EMPLOYEE: 'bg-green-100 text-green-700',
   };
   return (
@@ -198,86 +225,3 @@ function RoleBadge({ role }: { role: string }) {
     </span>
   );
 }
-
-function AdminPanel({ user }: { user: DBUser }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'employees' | 'attendance' | 'payroll' | 'settings'>('overview');
-
-  return (
-    <div className="space-y-6">
-      {/* Admin Navigation Tabs */}
-      <div className="flex flex-wrap border-b border-gray-200 gap-1 sm:gap-6 bg-white px-4 pt-4 rounded-t-xl border border-gray-100 shadow-sm">
-        {[
-          { id: 'overview', label: 'Company Overview', icon: <BarChart2 className="w-4 h-4" /> },
-          { id: 'employees', label: 'Manage Employees', icon: <Users className="w-4 h-4" /> },
-          { id: 'attendance', label: 'Upload Attendance', icon: <FileText className="w-4 h-4" /> },
-          { id: 'payroll', label: 'Run Payroll', icon: <Shield className="w-4 h-4" /> },
-          { id: 'settings', label: 'Payroll Settings', icon: <Settings className="w-4 h-4" /> },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 pb-4 px-2 text-sm font-semibold border-b-2 transition-all ${
-              activeTab === tab.id
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab Content */}
-      <div className="bg-white/50 rounded-b-xl border-x border-b border-gray-100 shadow-sm p-6">
-        {activeTab === 'overview' && <ManagerOverview user={user} />}
-        {activeTab === 'employees' && <AdminEmployees />}
-        {activeTab === 'attendance' && <AdminAttendance />}
-        {activeTab === 'payroll' && <AdminPayroll />}
-        {activeTab === 'settings' && <AdminSettings />}
-      </div>
-    </div>
-  );
-}
-
-function ManagerPanel({ user }: { user: DBUser }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'payroll'>('overview');
-
-  return (
-    <div className="space-y-6">
-      {/* Manager Navigation Tabs */}
-      <div className="flex flex-wrap border-b border-gray-200 gap-1 sm:gap-6 bg-white px-4 pt-4 rounded-t-xl border border-gray-100 shadow-sm">
-        {[
-          { id: 'overview', label: 'Team Overview', icon: <Users className="w-4 h-4" /> },
-          { id: 'attendance', label: 'Upload Attendance', icon: <FileText className="w-4 h-4" /> },
-          { id: 'payroll', label: 'Run Payroll', icon: <Shield className="w-4 h-4" /> },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 pb-4 px-2 text-sm font-semibold border-b-2 transition-all ${
-              activeTab === tab.id
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab Content */}
-      <div className="bg-white/50 rounded-b-xl border-x border-b border-gray-100 shadow-sm p-6">
-        {activeTab === 'overview' && <ManagerOverview user={user} />}
-        {activeTab === 'attendance' && <AdminAttendance />}
-        {activeTab === 'payroll' && <AdminPayroll />}
-      </div>
-    </div>
-  );
-}
-
-function EmployeePanel({ user }: { user: DBUser }) {
-  return <EmployeeDashboard user={user} />;
-}
-

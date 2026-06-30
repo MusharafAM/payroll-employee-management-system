@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"math"
 	"net/http"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/musharaf/payroll-backend/database"
 	"github.com/musharaf/payroll-backend/models"
+	"github.com/musharaf/payroll-backend/services"
 	"gorm.io/gorm"
 )
 
@@ -171,9 +174,19 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 	epf12 := baseSalary * (epfEmployerRate / 100)
 	etf3 := baseSalary * (etfRate / 100)
 
-	// Salary advances / loans (default to 0 unless fetched/stored elsewhere in future features)
+	// Salary advance for this specific month
+	var advance models.SalaryAdvance
 	salaryAdvance := 0.0
-	loan := 0.0
+	if tx.Where("employee_id = ? AND month = ?", emp.ID, month).First(&advance).Error == nil {
+		salaryAdvance = advance.Amount
+	}
+
+	// Active loan installment (only if loan has started by this month)
+	var activeLoan models.Loan
+	loanDeduction := 0.0
+	if tx.Where("employee_id = ? AND status = ? AND start_month <= ?", emp.ID, "active", month).First(&activeLoan).Error == nil {
+		loanDeduction = math.Min(activeLoan.MonthlyInstallment, activeLoan.RemainingBalance)
+	}
 
 	// Round up all monetary values to the nearest 10 Rupees
 	baseSalaryRounded := roundUp10(baseSalary)
@@ -199,7 +212,7 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 	epf12Rounded := roundUp10(epf12)
 	etf3Rounded := roundUp10(etf3)
 	salaryAdvanceRounded := roundUp10(salaryAdvance)
-	loanRounded := roundUp10(loan)
+	loanRounded := roundUp10(loanDeduction)
 
 	totalDeductions := epf8Rounded + salaryAdvanceRounded + loanRounded
 	totalDeductionsRounded := roundUp10(totalDeductions)
@@ -345,6 +358,22 @@ func SavePayroll(c *gin.Context) {
 			} else {
 				return res.Error
 			}
+
+			// Reduce active loan balance now that payroll is finalized
+			if payslip.Loan > 0 {
+				var activeLoan models.Loan
+				if tx.Where("employee_id = ? AND status = ? AND start_month <= ?", emp.ID, "active", req.Month).First(&activeLoan).Error == nil {
+					newBalance := activeLoan.RemainingBalance - payslip.Loan
+					updates := map[string]interface{}{"remaining_balance": newBalance}
+					if newBalance <= 0 {
+						updates["status"] = "paid_off"
+						updates["remaining_balance"] = 0
+					}
+					if err := tx.Model(&activeLoan).Updates(updates).Error; err != nil {
+						return err
+					}
+				}
+			}
 		}
 		return nil
 	})
@@ -373,6 +402,53 @@ func GetPayrollHistory(c *gin.Context) {
 
 	// Also fetch employee names map to enrich response or just respond with the raw records
 	c.JSON(http.StatusOK, gin.H{"month": month, "payrolls": payrolls})
+}
+
+// EmailPayslip receives a pre-generated PDF and emails it to the given address (POST /api/payroll/email-payslip)
+func EmailPayslip(c *gin.Context) {
+	log.Println("[EmailPayslip] handler entered")
+
+	toEmail := c.PostForm("email")
+	toName := c.PostForm("name")
+	month := c.PostForm("month")
+	log.Printf("[EmailPayslip] email=%q name=%q month=%q", toEmail, toName, month)
+
+	if toEmail == "" || month == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email and month are required"})
+		return
+	}
+
+	log.Println("[EmailPayslip] reading file...")
+	file, err := c.FormFile("payslip")
+	if err != nil {
+		log.Println("[EmailPayslip] FormFile error:", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "payslip PDF file is required: " + err.Error()})
+		return
+	}
+	log.Printf("[EmailPayslip] file received: %s (%d bytes)", file.Filename, file.Size)
+
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open uploaded file"})
+		return
+	}
+	defer f.Close()
+
+	pdfBytes, err := io.ReadAll(f)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read uploaded file"})
+		return
+	}
+	log.Printf("[EmailPayslip] read %d bytes, sending email...", len(pdfBytes))
+
+	if err := services.SendPayslipEmail(toEmail, toName, month, pdfBytes); err != nil {
+		log.Println("[EmailPayslip] SMTP error:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send email: " + err.Error()})
+		return
+	}
+
+	log.Println("[EmailPayslip] email sent successfully")
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("payslip emailed to %s", toEmail)})
 }
 
 // GetEmployeePayroll returns a single employee's payroll record for a given month (GET /api/payroll/employee/:id)

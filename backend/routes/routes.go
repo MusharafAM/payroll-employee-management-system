@@ -26,6 +26,10 @@ func SetupRoutes(router *gin.Engine) {
 		employees.POST("", middleware.AdminOnly(), handlers.CreateEmployee)
 		employees.PUT("/:id", middleware.AdminOnly(), handlers.UpdateEmployee)
 		employees.DELETE("/:id", middleware.AdminOnly(), handlers.DeleteEmployee)
+		employees.GET("/:id/advances", middleware.ManagerOrAdmin(), handlers.ListAdvances)
+		employees.POST("/:id/advances", middleware.AdminOnly(), handlers.CreateAdvance)
+		employees.GET("/:id/loans", middleware.ManagerOrAdmin(), handlers.ListLoans)
+		employees.POST("/:id/loans", middleware.AdminOnly(), handlers.CreateLoan)
 	}
 
 	// --- Attendance ---
@@ -36,6 +40,21 @@ func SetupRoutes(router *gin.Engine) {
 		attendance.GET("/employee/:id", handlers.GetEmployeeAttendance)
 		attendance.POST("/manual", middleware.ManagerOrAdmin(), handlers.CreateOrUpdateManualAttendance)
 		attendance.DELETE("/:id", middleware.ManagerOrAdmin(), handlers.DeleteAttendance)
+	}
+
+	// --- Advances ---
+	advances := api.Group("/advances")
+	advances.Use(middleware.AuthMiddleware())
+	{
+		advances.DELETE("/:id", middleware.AdminOnly(), handlers.DeleteAdvance)
+	}
+
+	// --- Loans ---
+	loans := api.Group("/loans")
+	loans.Use(middleware.AuthMiddleware())
+	{
+		loans.PUT("/:id", middleware.AdminOnly(), handlers.UpdateLoan)
+		loans.DELETE("/:id", middleware.AdminOnly(), handlers.DeleteLoan)
 	}
 
 	// --- Payroll Settings ---
@@ -54,5 +73,6 @@ func SetupRoutes(router *gin.Engine) {
 		payroll.POST("/save", middleware.AdminOnly(), handlers.SavePayroll)
 		payroll.GET("/history", middleware.ManagerOrAdmin(), handlers.GetPayrollHistory)
 		payroll.GET("/employee/:id", handlers.GetEmployeePayroll)
+		payroll.POST("/email-payslip", middleware.ManagerOrAdmin(), handlers.EmailPayslip)
 	}
 }

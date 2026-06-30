@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { Payroll } from './api';
 
-export async function downloadPayslipPDF(payroll: Payroll, employeeName: string, employeeIdStr: string, department: string, position: string) {
+async function buildPayslipPDF(payroll: Payroll, employeeName: string, employeeIdStr: string, department: string, position: string): Promise<{ pdf: jsPDF; filename: string }> {
   // 1. Create a temporary container styled off-screen
   const container = document.createElement('div');
   container.style.position = 'absolute';
@@ -185,12 +185,12 @@ export async function downloadPayslipPDF(payroll: Payroll, employeeName: string,
   try {
     // 3. Render container to canvas
     const canvas = await html2canvas(container, {
-      scale: 2, // higher resolution
+      scale: 1.5,
       useCORS: true,
       logging: false,
     });
 
-    const imgData = canvas.toDataURL('image/png');
+    const imgData = canvas.toDataURL('image/jpeg', 0.85);
 
     // 4. Create A4 PDF
     const pdf = new jsPDF({
@@ -202,16 +202,26 @@ export async function downloadPayslipPDF(payroll: Payroll, employeeName: string,
     const imgWidth = 210; // A4 dimensions: 210mm x 297mm
     const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-    pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+    pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight);
 
-    // 5. Trigger download
     const filename = `Payslip_${employeeName.replace(/\s+/g, '_')}_${payroll.month}.pdf`;
+    return { pdf, filename };
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+export async function downloadPayslipPDF(payroll: Payroll, employeeName: string, employeeIdStr: string, department: string, position: string) {
+  try {
+    const { pdf, filename } = await buildPayslipPDF(payroll, employeeName, employeeIdStr, department, position);
     pdf.save(filename);
   } catch (error) {
     console.error('Failed to generate PDF:', error);
     alert('Error generating payslip PDF.');
-  } finally {
-    // Cleanup
-    document.body.removeChild(container);
   }
+}
+
+export async function generatePayslipPDFBlob(payroll: Payroll, employeeName: string, employeeIdStr: string, department: string, position: string): Promise<Blob> {
+  const { pdf } = await buildPayslipPDF(payroll, employeeName, employeeIdStr, department, position);
+  return pdf.output('blob');
 }
