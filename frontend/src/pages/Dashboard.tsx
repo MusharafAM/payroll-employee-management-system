@@ -1,16 +1,39 @@
 import { useAuthContext, DecodedIDTokenPayload } from '@asgardeo/auth-react';
 import { useEffect, useState } from 'react';
-import { LogOut, User, Briefcase, Building2, Hash, Shield, Users, FileText } from 'lucide-react';
+import { NavLink, Outlet } from 'react-router-dom';
+import { LogOut as LogOutIcon, User, Briefcase, Building2, Hash, Shield, Users, FileText, Settings, BarChart2, CalendarDays, UserX, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useApi } from '@/hooks/useApi';
+import { useQuery } from '@tanstack/react-query';
 import type { User as DBUser } from '@/lib/api';
+import EmployeeDashboard from '@/components/EmployeeDashboard';
 
 interface AsgardeoToken extends DecodedIDTokenPayload {
   groups?: string[];
 }
 
 type SyncState = 'idle' | 'syncing' | 'done' | 'error';
+
+const ADMIN_TABS = [
+  { path: 'overview',        label: 'Company Overview',  icon: <BarChart2 className="w-4 h-4" /> },
+  { path: 'employees',       label: 'Manage Employees',  icon: <Users className="w-4 h-4" /> },
+  { path: 'attendance',      label: 'Upload Attendance', icon: <FileText className="w-4 h-4" /> },
+  { path: 'payroll',         label: 'Run Payroll',       icon: <Shield className="w-4 h-4" /> },
+  { path: 'leave-requests',  label: 'Leave Requests',    icon: <CalendarDays className="w-4 h-4" /> },
+  { path: 'holidays',        label: 'Holidays',          icon: <CalendarDays className="w-4 h-4" /> },
+  { path: 'exits',                label: 'Exit Management',      icon: <UserX className="w-4 h-4" /> },
+  { path: 'performance-reviews', label: 'Performance Reviews',  icon: <Star className="w-4 h-4" /> },
+  { path: 'settings',            label: 'Payroll Settings',     icon: <Settings className="w-4 h-4" /> },
+];
+
+const MANAGER_TABS = [
+  { path: 'overview',       label: 'Team Overview',      icon: <Users className="w-4 h-4" /> },
+  { path: 'attendance',     label: 'Upload Attendance',  icon: <FileText className="w-4 h-4" /> },
+  { path: 'payroll',        label: 'Run Payroll',        icon: <Shield className="w-4 h-4" /> },
+  { path: 'leave-requests', label: 'Leave Requests',     icon: <CalendarDays className="w-4 h-4" /> },
+  { path: 'holidays',       label: 'Holidays',           icon: <CalendarDays className="w-4 h-4" /> },
+];
 
 export default function Dashboard() {
   const { state, signOut, getDecodedIDToken } = useAuthContext();
@@ -20,28 +43,46 @@ export default function Dashboard() {
   const [syncState, setSyncState] = useState<SyncState>('idle');
   const [error, setError] = useState('');
 
-  // On first authenticated load: sync the user to our DB, then fetch their record.
+  const hasDevToken = !!localStorage.getItem('dev_token');
+
   useEffect(() => {
-    if (!state.isAuthenticated || syncState !== 'idle') return;
+    if ((!state.isAuthenticated && !hasDevToken) || syncState !== 'idle') return;
 
     const syncAndFetch = async () => {
       setSyncState('syncing');
       try {
-        const decoded = (await getDecodedIDToken()) as AsgardeoToken;
-        const email = decoded.email as string;
-        const name = (decoded.name || decoded.username || email) as string;
+        let email = '';
+        let name = '';
 
-        // Create / update user in DB (role is read from the JWT groups claim by the backend)
+        if (hasDevToken) {
+          const token = localStorage.getItem('dev_token') || '';
+          if (token.startsWith('dev-token-email:')) {
+            email = token.replace('dev-token-email:', '');
+            const prefix = email.split('@')[0];
+            name = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+          } else if (token === 'dev-token-admin') {
+            email = 'admin@company.com';
+            name = 'Dev Admin';
+          } else if (token === 'dev-token-manager') {
+            email = 'manager@company.com';
+            name = 'Dev Manager';
+          } else {
+            email = 'employee@company.com';
+            name = 'Dev Employee';
+          }
+        } else {
+          const decoded = (await getDecodedIDToken()) as AsgardeoToken;
+          email = decoded.email as string;
+          name = (decoded.name || decoded.username || email) as string;
+        }
+
         await api.post('/auth/sync-user', { email, name });
-
-        // Fetch the full DB record
         const { data } = await api.get<{ user: DBUser }>('/auth/me');
         setDbUser(data.user);
         setSyncState('done');
       } catch (err: unknown) {
         console.error('Failed to sync user:', err);
         const msg = err instanceof Error ? err.message : String(err);
-        // axios wraps HTTP errors — try to get the response status
         const axiosErr = err as { response?: { status: number; data?: { error?: string } } };
         if (axiosErr.response) {
           const status = axiosErr.response.status;
@@ -55,9 +96,19 @@ export default function Dashboard() {
     };
 
     syncAndFetch();
-  }, [state.isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.isAuthenticated, hasDevToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // --- Loading ---
+  const { data: pendingData } = useQuery({
+    queryKey: ['leave-requests'],
+    queryFn: async () => {
+      const res = await api.get<{ count: number }>('/leave-requests');
+      return res.data;
+    },
+    enabled: (dbUser?.role === 'ADMIN' || dbUser?.role === 'MANAGER') && syncState === 'done',
+    refetchInterval: 60000,
+  });
+  const pendingCount = pendingData?.count ?? 0;
+
   if (syncState === 'idle' || syncState === 'syncing') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -69,7 +120,6 @@ export default function Dashboard() {
     );
   }
 
-  // --- Error ---
   if (syncState === 'error') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -84,6 +134,15 @@ export default function Dashboard() {
 
   const user = dbUser!;
 
+  const handleSignOut = () => {
+    if (localStorage.getItem('dev_token')) {
+      localStorage.removeItem('dev_token');
+      window.location.href = '/login';
+    } else {
+      signOut();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -93,13 +152,18 @@ export default function Dashboard() {
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <FileText className="w-4 h-4 text-white" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900">Payroll System</h1>
+            <h1 className="text-xl font-bold text-gray-900">PODUR Payroll</h1>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500 hidden sm:block">{user.email}</span>
             <RoleBadge role={user.role} />
-            <Button variant="outline" size="sm" onClick={() => signOut()} className="flex items-center gap-2">
-              <LogOut className="w-4 h-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSignOut}
+              className="flex items-center gap-2"
+            >
+              <LogOutIcon className="w-4 h-4" />
               Sign Out
             </Button>
           </div>
@@ -114,23 +178,51 @@ export default function Dashboard() {
             Welcome back, {user.name}!
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <InfoCell icon={<User className="w-4 h-4" />} label="Full Name" value={user.name} />
-            <InfoCell icon={<Hash className="w-4 h-4" />} label="Employee ID" value={user.employeeId} />
-            <InfoCell icon={<Building2 className="w-4 h-4" />} label="Department" value={user.department || '—'} />
-            <InfoCell icon={<Briefcase className="w-4 h-4" />} label="Position" value={user.position || '—'} />
+            <InfoCell icon={<User className="w-4 h-4" />}      label="Full Name"    value={user.name} />
+            <InfoCell icon={<Hash className="w-4 h-4" />}      label="Employee ID"  value={user.employeeId} />
+            <InfoCell icon={<Building2 className="w-4 h-4" />} label="Department"   value={user.department || '—'} />
+            <InfoCell icon={<Briefcase className="w-4 h-4" />} label="Position"     value={user.position || '—'} />
           </div>
         </Card>
 
-        {/* Role-specific panels */}
-        {user.role === 'ADMIN' && <AdminPanel />}
-        {user.role === 'MANAGER' && <ManagerPanel />}
-        {user.role === 'EMPLOYEE' && <EmployeePanel user={user} />}
+        {/* EMPLOYEE: render their own view directly — no tabs */}
+        {user.role === 'EMPLOYEE' && <EmployeeDashboard user={user} />}
+
+        {/* ADMIN / MANAGER: tab nav + routed content */}
+        {(user.role === 'ADMIN' || user.role === 'MANAGER') && (
+          <div className="space-y-0">
+            <div className="flex flex-wrap border-b border-gray-200 gap-1 sm:gap-6 bg-white px-4 pt-4 rounded-t-xl border border-gray-100 shadow-sm">
+              {(user.role === 'ADMIN' ? ADMIN_TABS : MANAGER_TABS).map((tab) => (
+                <NavLink
+                  key={tab.path}
+                  to={`/dashboard/${tab.path}`}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 pb-4 px-2 text-sm font-semibold border-b-2 transition-all ${
+                      isActive
+                        ? 'border-blue-600 text-blue-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
+                    }`
+                  }
+                >
+                  {tab.icon}
+                  {tab.label}
+                  {tab.path === 'leave-requests' && pendingCount > 0 && (
+                    <span className="ml-0.5 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                      {pendingCount}
+                    </span>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+            <div className="bg-white/50 rounded-b-xl border-x border-b border-gray-100 shadow-sm p-6">
+              <Outlet context={{ user }} />
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
 }
-
-// ---- Sub-components ----
 
 function InfoCell({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
@@ -146,93 +238,13 @@ function InfoCell({ icon, label, value }: { icon: React.ReactNode; label: string
 
 function RoleBadge({ role }: { role: string }) {
   const styles: Record<string, string> = {
-    ADMIN: 'bg-red-100 text-red-700',
-    MANAGER: 'bg-purple-100 text-purple-700',
+    ADMIN:    'bg-red-100 text-red-700',
+    MANAGER:  'bg-purple-100 text-purple-700',
     EMPLOYEE: 'bg-green-100 text-green-700',
   };
   return (
     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${styles[role] ?? styles.EMPLOYEE}`}>
       {role}
     </span>
-  );
-}
-
-function AdminPanel() {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <PlaceholderCard
-        icon={<Users className="w-6 h-6 text-blue-600" />}
-        title="Manage Employees"
-        description="Add, edit, and configure employee salary settings."
-      />
-      <PlaceholderCard
-        icon={<FileText className="w-6 h-6 text-green-600" />}
-        title="Upload Attendance"
-        description="Upload the monthly Excel timecard to process attendance."
-      />
-      <PlaceholderCard
-        icon={<Shield className="w-6 h-6 text-purple-600" />}
-        title="Run Payroll"
-        description="Calculate salaries and generate payslips for all employees."
-      />
-    </div>
-  );
-}
-
-function ManagerPanel() {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <PlaceholderCard
-        icon={<Users className="w-6 h-6 text-blue-600" />}
-        title="Team Overview"
-        description="View attendance and payroll summary for your department."
-      />
-      <PlaceholderCard
-        icon={<FileText className="w-6 h-6 text-green-600" />}
-        title="Reports"
-        description="View department-level payroll and attendance reports."
-      />
-    </div>
-  );
-}
-
-function EmployeePanel({ user }: { user: DBUser }) {
-  const profile = user.salaryProfile;
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Card className="p-5">
-        <h3 className="font-semibold text-gray-900 mb-3 text-sm">Salary Details</h3>
-        <div className="space-y-2 text-sm">
-          {[
-            { label: 'Base Salary', value: profile?.baseSalary ?? 0 },
-            { label: 'Hourly Rate', value: profile?.hourlyRate ?? 0 },
-            { label: 'Travel Allowance', value: profile?.travelAllowance ?? 0 },
-          ].map(({ label, value }) => (
-            <div key={label} className="flex justify-between">
-              <span className="text-gray-500">{label}</span>
-              <span className="font-medium">LKR {value.toLocaleString()}</span>
-            </div>
-          ))}
-        </div>
-      </Card>
-      <PlaceholderCard
-        icon={<FileText className="w-6 h-6 text-blue-600" />}
-        title="My Payslips"
-        description="View and download your monthly payslips once payroll is processed."
-      />
-    </div>
-  );
-}
-
-function PlaceholderCard({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
-  return (
-    <Card className="p-5 flex flex-col gap-3 border-dashed">
-      <div className="flex items-center gap-3">
-        {icon}
-        <h3 className="font-semibold text-gray-900 text-sm">{title}</h3>
-      </div>
-      <p className="text-sm text-gray-500 flex-1">{description}</p>
-      <span className="text-xs text-gray-400 font-medium">Coming soon</span>
-    </Card>
   );
 }

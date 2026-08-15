@@ -1,12 +1,23 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useOutletContext } from 'react-router-dom';
 import { useAuthContext } from '@asgardeo/auth-react';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import AdminEmployees from './components/AdminEmployees';
+import AdminAttendance from './components/AdminAttendance';
+import AdminPayroll from './components/AdminPayroll';
+import AdminSettings from './components/AdminSettings';
+import AdminLeaveRequests from './components/AdminLeaveRequests';
+import AdminHolidays from './components/AdminHolidays';
+import AdminExitManagement from './components/AdminExitManagement';
+import AdminPerformanceReviews from './components/AdminPerformanceReviews';
+import ManagerOverview from './components/ManagerOverview';
+import type { User as DBUser } from './lib/api';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { state } = useAuthContext();
+  const hasDevToken = !!localStorage.getItem('dev_token');
 
-  if (state.isLoading) {
+  if (state.isLoading && !hasDevToken) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -17,11 +28,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!state.isAuthenticated) {
+  if (!state.isAuthenticated && !hasDevToken) {
     return <Navigate to="/login" replace />;
   }
 
   return <>{children}</>;
+}
+
+// Reads user from Dashboard's outlet context and passes to ManagerOverview
+function OverviewOutlet() {
+  const { user } = useOutletContext<{ user: DBUser }>();
+  return <ManagerOverview user={user} />;
 }
 
 function App() {
@@ -36,7 +53,18 @@ function App() {
               <Dashboard />
             </ProtectedRoute>
           }
-        />
+        >
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview"       element={<OverviewOutlet />} />
+          <Route path="employees"      element={<AdminEmployees />} />
+          <Route path="attendance"     element={<AdminAttendance />} />
+          <Route path="payroll"        element={<AdminPayroll />} />
+          <Route path="leave-requests" element={<AdminLeaveRequests />} />
+          <Route path="holidays"       element={<AdminHolidays />} />
+          <Route path="settings"       element={<AdminSettings />} />
+          <Route path="exits"          element={<AdminExitManagement />} />
+          <Route path="performance-reviews" element={<AdminPerformanceReviews />} />
+        </Route>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

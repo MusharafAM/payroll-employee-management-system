@@ -29,7 +29,7 @@ func SyncUser(c *gin.Context) {
 	role := models.Role(fmt.Sprintf("%v", roleStr))
 
 	var user models.User
-	err := database.DB.Where("email = ?", req.Email).First(&user).Error
+	err := database.DB.Unscoped().Where("email = ?", req.Email).First(&user).Error
 
 	if err != nil {
 		// New user — auto-generate an employee ID they can update later
@@ -46,16 +46,27 @@ func SyncUser(c *gin.Context) {
 			return
 		}
 
-		// Create an empty salary profile for this new user
+		// Create a realistic default salary profile for this new user
 		profile := models.SalaryProfile{
 			UserID:               user.ID,
+			BaseSalary:           85000.0,
+			HourlyRate:           500.0,
+			TravelAllowance:      200.0,
 			IsLunchHourDeduction: true,
 			AdditionalAllowances: models.JSONBMap{},
 		}
 		database.DB.Create(&profile)
 	} else {
-		// Existing user — keep their DB role, just sync display name from Asgardeo
-		database.DB.Model(&user).Update("name", req.Name)
+		// Existing user — if soft-deleted, restore them first!
+		if user.DeletedAt.Valid {
+			database.DB.Model(&user).Unscoped().Update("deleted_at", nil)
+		}
+		// Sync display name, role, and set active
+		database.DB.Model(&user).Updates(map[string]interface{}{
+			"name":      req.Name,
+			"role":      role,
+			"is_active": true,
+		})
 	}
 
 	// Return user with salary profile attached

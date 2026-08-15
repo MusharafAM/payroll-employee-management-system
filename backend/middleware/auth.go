@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/musharaf/payroll-backend/database"
 )
 
 type asgardeoUserInfo struct {
@@ -75,7 +76,54 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		info, err := verifyToken(strings.TrimPrefix(header, "Bearer "))
+		token := strings.TrimPrefix(header, "Bearer ")
+
+		// --- Development/Offline Token Bypass ---
+		if strings.HasPrefix(token, "dev-token-email:") {
+			email := strings.TrimPrefix(token, "dev-token-email:")
+			// Resolve the user's role from DB if they exist
+			role := "EMPLOYEE"
+			type SimpleUser struct {
+				Role string
+			}
+			var user SimpleUser
+			// Use raw DB access to avoid circular imports or complex lookups in middleware
+			if database.DB != nil {
+				database.DB.Table("users").Where("email = ? AND deleted_at IS NULL", email).First(&user)
+				if user.Role != "" {
+					role = user.Role
+				}
+			}
+
+			c.Set("userEmail", email)
+			c.Set("userSub", "dev-"+email+"-sub")
+			c.Set("userRole", role)
+			c.Next()
+			return
+		}
+		if token == "dev-token-admin" {
+			c.Set("userEmail", "admin@company.com")
+			c.Set("userSub", "dev-admin-sub")
+			c.Set("userRole", "ADMIN")
+			c.Next()
+			return
+		}
+		if token == "dev-token-manager" {
+			c.Set("userEmail", "manager@company.com")
+			c.Set("userSub", "dev-manager-sub")
+			c.Set("userRole", "MANAGER")
+			c.Next()
+			return
+		}
+		if token == "dev-token-employee" {
+			c.Set("userEmail", "employee@company.com")
+			c.Set("userSub", "dev-employee-sub")
+			c.Set("userRole", "EMPLOYEE")
+			c.Next()
+			return
+		}
+
+		info, err := verifyToken(token)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			c.Abort()
