@@ -25,6 +25,7 @@ export function createApi(getToken: () => Promise<string>) {
 export interface SalaryProfile {
   id: string;
   userId: string;
+  salaryType: 'hourly' | 'fixed';
   hourlyRate: number;
   baseSalary: number;
   travelAllowance: number;
@@ -50,9 +51,88 @@ export interface User {
   department: string;
   position: string;
   isActive: boolean;
+  phone?: string;
+  nic?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  address?: string;
+  joinDate?: string;
+  employmentType?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelationship?: string;
+  emergencyContactEmail?: string;
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankBranch?: string;
+  annualLeaveEntitlement: number;
   salaryProfile?: SalaryProfile;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DisciplinaryRecord {
+  id: string;
+  employeeId: string;
+  type: 'warning' | 'incident' | 'letter';
+  severity: 'low' | 'medium' | 'high';
+  date: string;
+  description: string;
+  issuedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExitRecord {
+  id: string;
+  employeeId: string;
+  employee?: User;
+  exitType: 'resignation' | 'termination';
+  noticeDate: string;
+  lastWorkingDay: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'completed';
+  leaveRemainingDays: number;
+  leavePayoutElected: boolean;
+  leavePayoutAmount: number;
+  outstandingLoans: number;
+  gratuityAmount: number;
+  totalSettlement: number;
+  notes: string;
+  approvedBy: string;
+  approvedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExitSettlementPreview {
+  leaveRemainingDays: number;
+  dailyRate: number;
+  leavePayoutAmount: number;
+  outstandingLoans: number;
+}
+
+export interface LeaveRecord {
+  id: string;
+  employeeId: string;
+  employee?: User;
+  date: string;
+  days: number;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  rejectionReason: string;
+  reviewedBy: string;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LeaveBalance {
+  year: number;
+  entitlement: number;
+  used: number;
+  remaining: number;
 }
 
 export interface Attendance {
@@ -65,6 +145,35 @@ export interface Attendance {
   regularHours: number;
   overtimeHours: number;
   isHalfDay: boolean;
+}
+
+export interface PublicHoliday {
+  id: string;
+  date: string;
+  name: string;
+  isWorkday: boolean;
+  rateMultiplier: number;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PerformanceReview {
+  id: string;
+  employeeId: string;
+  employee?: User;
+  reviewPeriod: string;
+  reviewDate: string;
+  rating: 'excellent' | 'good' | 'satisfactory' | 'needs_improvement' | 'unsatisfactory';
+  strengths: string;
+  areasForImprovement: string;
+  goals: string;
+  notes: string;
+  reviewedBy: string;
+  status: 'draft' | 'final';
+  attendanceScore: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Payroll {
@@ -89,6 +198,8 @@ export interface Payroll {
   targetBonus: number;
   attendanceBonus: number;
   otherBonus: number;
+  holidayWorkDays: number;
+  holidayPay: number;
   grossSalary: number;
   epf8: number;
   epf12: number;

@@ -107,7 +107,21 @@ export default function AdminSettings() {
     updateMutation.mutate({ key, value: editValue, description: editDesc });
   };
 
+  const isTimeSetting = (key: string) => key === 'shift_start_minutes';
+
+  const minutesToTimeStr = (minutes: number) => {
+    const h = Math.floor(minutes / 60);
+    const m = Math.floor(minutes % 60);
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+  };
+
+  const timeStrToMinutes = (timeStr: string) => {
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + (m || 0);
+  };
+
   const formatKeyName = (key: string) => {
+    if (key === 'shift_start_minutes') return 'Expected Shift Start Time';
     return key
       .split('_')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
@@ -115,6 +129,7 @@ export default function AdminSettings() {
   };
 
   const getSettingIcon = (key: string) => {
+    if (key === 'shift_start_minutes') return <Clock className="w-5 h-5 text-blue-500" />;
     if (key.includes('multiplier')) return <Scale className="w-5 h-5 text-indigo-500" />;
     if (key.includes('rate')) return <Percent className="w-5 h-5 text-emerald-500" />;
     if (key.includes('hours')) return <Clock className="w-5 h-5 text-amber-500" />;
@@ -253,13 +268,22 @@ export default function AdminSettings() {
                   <div className="flex items-center gap-4 w-full sm:w-auto justify-end">
                     {isEditing ? (
                       <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="w-24 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-right font-semibold"
-                          value={editValue}
-                          onChange={(e) => setEditValue(Number(e.target.value))}
-                        />
+                        {isTimeSetting(setting.key) ? (
+                          <input
+                            type="time"
+                            className="w-32 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                            value={minutesToTimeStr(editValue)}
+                            onChange={(e) => setEditValue(timeStrToMinutes(e.target.value))}
+                          />
+                        ) : (
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="w-24 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-right font-semibold"
+                            value={editValue}
+                            onChange={(e) => setEditValue(Number(e.target.value))}
+                          />
+                        )}
                         <Button
                           size="sm"
                           className="bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -281,7 +305,11 @@ export default function AdminSettings() {
                       <div className="flex items-center gap-3">
                         <div className="text-right">
                           <span className="text-lg font-bold text-gray-900">
-                            {setting.key.includes('rate') ? `${setting.value}%` : setting.value}
+                            {isTimeSetting(setting.key)
+                              ? minutesToTimeStr(setting.value)
+                              : setting.key.includes('rate')
+                              ? `${setting.value}%`
+                              : setting.value}
                           </span>
                         </div>
                         <Button

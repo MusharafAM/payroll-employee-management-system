@@ -1,10 +1,11 @@
 import { useAuthContext, DecodedIDTokenPayload } from '@asgardeo/auth-react';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, User, Briefcase, Building2, Hash, Shield, Users, FileText, Settings, BarChart2 } from 'lucide-react';
+import { LogOut as LogOutIcon, User, Briefcase, Building2, Hash, Shield, Users, FileText, Settings, BarChart2, CalendarDays, UserX, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useApi } from '@/hooks/useApi';
+import { useQuery } from '@tanstack/react-query';
 import type { User as DBUser } from '@/lib/api';
 import EmployeeDashboard from '@/components/EmployeeDashboard';
 
@@ -15,17 +16,23 @@ interface AsgardeoToken extends DecodedIDTokenPayload {
 type SyncState = 'idle' | 'syncing' | 'done' | 'error';
 
 const ADMIN_TABS = [
-  { path: 'overview',    label: 'Company Overview',   icon: <BarChart2 className="w-4 h-4" /> },
-  { path: 'employees',   label: 'Manage Employees',   icon: <Users className="w-4 h-4" /> },
-  { path: 'attendance',  label: 'Upload Attendance',  icon: <FileText className="w-4 h-4" /> },
-  { path: 'payroll',     label: 'Run Payroll',        icon: <Shield className="w-4 h-4" /> },
-  { path: 'settings',   label: 'Payroll Settings',   icon: <Settings className="w-4 h-4" /> },
+  { path: 'overview',        label: 'Company Overview',  icon: <BarChart2 className="w-4 h-4" /> },
+  { path: 'employees',       label: 'Manage Employees',  icon: <Users className="w-4 h-4" /> },
+  { path: 'attendance',      label: 'Upload Attendance', icon: <FileText className="w-4 h-4" /> },
+  { path: 'payroll',         label: 'Run Payroll',       icon: <Shield className="w-4 h-4" /> },
+  { path: 'leave-requests',  label: 'Leave Requests',    icon: <CalendarDays className="w-4 h-4" /> },
+  { path: 'holidays',        label: 'Holidays',          icon: <CalendarDays className="w-4 h-4" /> },
+  { path: 'exits',                label: 'Exit Management',      icon: <UserX className="w-4 h-4" /> },
+  { path: 'performance-reviews', label: 'Performance Reviews',  icon: <Star className="w-4 h-4" /> },
+  { path: 'settings',            label: 'Payroll Settings',     icon: <Settings className="w-4 h-4" /> },
 ];
 
 const MANAGER_TABS = [
-  { path: 'overview',   label: 'Team Overview',      icon: <Users className="w-4 h-4" /> },
-  { path: 'attendance', label: 'Upload Attendance',  icon: <FileText className="w-4 h-4" /> },
-  { path: 'payroll',    label: 'Run Payroll',        icon: <Shield className="w-4 h-4" /> },
+  { path: 'overview',       label: 'Team Overview',      icon: <Users className="w-4 h-4" /> },
+  { path: 'attendance',     label: 'Upload Attendance',  icon: <FileText className="w-4 h-4" /> },
+  { path: 'payroll',        label: 'Run Payroll',        icon: <Shield className="w-4 h-4" /> },
+  { path: 'leave-requests', label: 'Leave Requests',     icon: <CalendarDays className="w-4 h-4" /> },
+  { path: 'holidays',       label: 'Holidays',           icon: <CalendarDays className="w-4 h-4" /> },
 ];
 
 export default function Dashboard() {
@@ -91,6 +98,17 @@ export default function Dashboard() {
     syncAndFetch();
   }, [state.isAuthenticated, hasDevToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const { data: pendingData } = useQuery({
+    queryKey: ['leave-requests'],
+    queryFn: async () => {
+      const res = await api.get<{ count: number }>('/leave-requests');
+      return res.data;
+    },
+    enabled: (dbUser?.role === 'ADMIN' || dbUser?.role === 'MANAGER') && syncState === 'done',
+    refetchInterval: 60000,
+  });
+  const pendingCount = pendingData?.count ?? 0;
+
   if (syncState === 'idle' || syncState === 'syncing') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -145,7 +163,7 @@ export default function Dashboard() {
               onClick={handleSignOut}
               className="flex items-center gap-2"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOutIcon className="w-4 h-4" />
               Sign Out
             </Button>
           </div>
@@ -188,6 +206,11 @@ export default function Dashboard() {
                 >
                   {tab.icon}
                   {tab.label}
+                  {tab.path === 'leave-requests' && pendingCount > 0 && (
+                    <span className="ml-0.5 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                      {pendingCount}
+                    </span>
+                  )}
                 </NavLink>
               ))}
             </div>

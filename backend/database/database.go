@@ -51,6 +51,11 @@ func Migrate() {
 		&models.Payroll{},
 		&models.SalaryAdvance{},
 		&models.Loan{},
+		&models.LeaveRecord{},
+		&models.PublicHoliday{},
+		&models.DisciplinaryRecord{},
+		&models.ExitRecord{},
+		&models.PerformanceReview{},
 	)
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)
@@ -75,6 +80,7 @@ func seedPayrollSettings() {
 		{Key: "ot_tier1_window_hours", Value: 2.0, Description: "Hours of first-tier OT before second tier kicks in"},
 		{Key: "lunch_incentive_per_day", Value: 0.5, Description: "Lunch incentive hours credited per worked day (when lunch deduction is active)"},
 		{Key: "round_to_nearest", Value: 10.0, Description: "Round all salary components up to this value (e.g. 10 = nearest LKR 10, 1 = no rounding)"},
+		{Key: "shift_start_minutes", Value: 480.0, Description: "Expected shift start time in minutes since midnight (e.g. 480 = 08:00, 510 = 08:30). Used to calculate punctuality in performance reviews."},
 	}
 
 	for _, s := range defaults {

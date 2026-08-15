@@ -6,6 +6,10 @@ import AdminEmployees from './components/AdminEmployees';
 import AdminAttendance from './components/AdminAttendance';
 import AdminPayroll from './components/AdminPayroll';
 import AdminSettings from './components/AdminSettings';
+import AdminLeaveRequests from './components/AdminLeaveRequests';
+import AdminHolidays from './components/AdminHolidays';
+import AdminExitManagement from './components/AdminExitManagement';
+import AdminPerformanceReviews from './components/AdminPerformanceReviews';
 import ManagerOverview from './components/ManagerOverview';
 import type { User as DBUser } from './lib/api';
 
@@ -51,11 +55,15 @@ function App() {
           }
         >
           <Route index element={<Navigate to="overview" replace />} />
-          <Route path="overview"    element={<OverviewOutlet />} />
-          <Route path="employees"   element={<AdminEmployees />} />
-          <Route path="attendance"  element={<AdminAttendance />} />
-          <Route path="payroll"     element={<AdminPayroll />} />
-          <Route path="settings"    element={<AdminSettings />} />
+          <Route path="overview"       element={<OverviewOutlet />} />
+          <Route path="employees"      element={<AdminEmployees />} />
+          <Route path="attendance"     element={<AdminAttendance />} />
+          <Route path="payroll"        element={<AdminPayroll />} />
+          <Route path="leave-requests" element={<AdminLeaveRequests />} />
+          <Route path="holidays"       element={<AdminHolidays />} />
+          <Route path="settings"       element={<AdminSettings />} />
+          <Route path="exits"          element={<AdminExitManagement />} />
+          <Route path="performance-reviews" element={<AdminPerformanceReviews />} />
         </Route>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>

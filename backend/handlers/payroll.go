@@ -68,12 +68,22 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 		return models.Payroll{}, err
 	}
 
-	workDays := len(attendances)
+	// Load public holidays for this month and build a lookup map by date string.
+	var publicHolidays []models.PublicHoliday
+	tx.Where("date >= ? AND date < ?", t, t.AddDate(0, 1, 0)).Find(&publicHolidays)
+	holidayMap := make(map[string]models.PublicHoliday, len(publicHolidays))
+	for _, h := range publicHolidays {
+		holidayMap[h.Date.Format("2006-01-02")] = h
+	}
+
+	var workDays int
 	var regularHours float64
 	var overtimeHours float64
 	var overtime15Hours float64
 	var overtime20Hours float64
 	var lunchIncentiveHours float64
+	var holidayWorkDays int
+	var holidayPay float64
 
 	profile := emp.SalaryProfile
 	if profile == nil {
@@ -89,7 +99,75 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 	}
 	tier2Start := otThreshold + tier1Window
 
+	// Fixed-salary employees: skip attendance-based calculation entirely.
+	if profile.SalaryType == "fixed" {
+		baseSalary := rnd(profile.BaseSalary)
+
+		// Salary advance for this specific month
+		var advance models.SalaryAdvance
+		salaryAdvance := 0.0
+		if tx.Where("employee_id = ? AND month = ?", emp.ID, month).First(&advance).Error == nil {
+			salaryAdvance = advance.Amount
+		}
+
+		// Active loan installment
+		var activeLoan models.Loan
+		loanDeduction := 0.0
+		if tx.Where("employee_id = ? AND status = ? AND start_month <= ?", emp.ID, "active", month).First(&activeLoan).Error == nil {
+			loanDeduction = math.Min(activeLoan.MonthlyInstallment, activeLoan.RemainingBalance)
+		}
+
+		epf8 := rnd(baseSalary * (epfEmployeeRate / 100))
+		epf12 := rnd(baseSalary * (epfEmployerRate / 100))
+		etf3 := rnd(baseSalary * (etfRate / 100))
+		salaryAdvanceRounded := rnd(salaryAdvance)
+		loanRounded := rnd(loanDeduction)
+		totalDeductions := rnd(epf8 + salaryAdvanceRounded + loanRounded)
+		netSalary := rnd(baseSalary - totalDeductions)
+
+		// Count present days from attendance (fingerprint used for tracking only, not salary)
+		presentDays := len(attendances)
+
+		return models.Payroll{
+			EmployeeID:      emp.ID,
+			Month:           month,
+			WorkDays:        presentDays,
+			BaseSalary:      baseSalary,
+			RegularPay:      baseSalary,
+			GrossSalary:     baseSalary,
+			EPF8:            epf8,
+			EPF12:           epf12,
+			ETF3:            etf3,
+			SalaryAdvance:   salaryAdvanceRounded,
+			Loan:            loanRounded,
+			TotalDeductions: totalDeductions,
+			NetSalary:       netSalary,
+			GeneratedAt:     time.Now(),
+		}, nil
+	}
+
+	hourlyRate := profile.HourlyRate
+
 	for _, a := range attendances {
+		dateKey := a.Date.Format("2006-01-02")
+
+		if holiday, isHoliday := holidayMap[dateKey]; isHoliday {
+			if !holiday.IsWorkday {
+				// Public holiday: employee does not work — skip entirely.
+				continue
+			}
+			// Working holiday: all hours paid at rateMultiplier × hourlyRate.
+			workDays++
+			holidayWorkDays++
+			holidayPay += a.TotalHours * hourlyRate * holiday.RateMultiplier
+			if a.TotalHours > 0 && lunchDeductionActive {
+				lunchIncentiveHours += lunchIncentivePerDay
+			}
+			continue
+		}
+
+		// Normal working day.
+		workDays++
 		regularHours += a.RegularHours
 		overtimeHours += a.OvertimeHours
 
@@ -110,7 +188,6 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 	}
 
 	baseSalary := profile.BaseSalary
-	hourlyRate := profile.HourlyRate
 
 	overtimePay := (overtime15Hours * tier1Multiplier * hourlyRate) + (overtime20Hours * tier2Multiplier * hourlyRate)
 
@@ -199,11 +276,12 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 	targetBonusRounded := rnd(targetBonus)
 	attendanceBonusRounded := rnd(attendanceBonus)
 	otherBonusRounded := rnd(otherBonus)
+	holidayPayRounded := rnd(holidayPay)
 
 	grossSalary := regularPayRounded + overtimePayRounded + travelAllowanceRounded +
 		performanceAllowanceRounded + lunchIncentiveRounded + eidBonusRounded +
 		hajBonusRounded + poyaBonusRounded + targetBonusRounded + attendanceBonusRounded +
-		otherBonusRounded
+		otherBonusRounded + holidayPayRounded
 	grossSalaryRounded := rnd(grossSalary)
 
 	epf8Rounded := rnd(epf8)
@@ -239,6 +317,8 @@ func calculateEmployeePayroll(tx *gorm.DB, emp models.User, month string, settin
 		TargetBonus:          targetBonusRounded,
 		AttendanceBonus:      attendanceBonusRounded,
 		OtherBonus:           otherBonusRounded,
+		HolidayWorkDays:      holidayWorkDays,
+		HolidayPay:           holidayPayRounded,
 		GrossSalary:          grossSalaryRounded,
 		EPF8:                 epf8Rounded,
 		EPF12:                epf12Rounded,
@@ -305,7 +385,9 @@ func CalculatePayroll(c *gin.Context) {
 // SavePayroll saves calculated payroll records to the database (POST /api/payroll/save)
 func SavePayroll(c *gin.Context) {
 	var req struct {
-		Month string `json:"month" binding:"required"`
+		Month     string             `json:"month" binding:"required"`
+		// Overrides maps employeeID → manually entered baseSalary for fixed-salary employees this month.
+		Overrides map[string]float64 `json:"overrides"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -329,7 +411,17 @@ func SavePayroll(c *gin.Context) {
 
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		for _, emp := range employees {
-			payslip, err := calculateEmployeePayroll(tx, emp, req.Month, settings)
+			// For fixed-salary employees, apply this month's override amount if provided.
+			empToCalc := emp
+			if emp.SalaryProfile != nil && emp.SalaryProfile.SalaryType == "fixed" {
+				if override, ok := req.Overrides[emp.ID]; ok && override > 0 {
+					profileCopy := *emp.SalaryProfile
+					profileCopy.BaseSalary = override
+					empToCalc.SalaryProfile = &profileCopy
+				}
+			}
+
+			payslip, err := calculateEmployeePayroll(tx, empToCalc, req.Month, settings)
 			if err != nil {
 				return err
 			}
@@ -360,7 +452,7 @@ func SavePayroll(c *gin.Context) {
 			// Reduce active loan balance now that payroll is finalized
 			if payslip.Loan > 0 {
 				var activeLoan models.Loan
-				if tx.Where("employee_id = ? AND status = ? AND start_month <= ?", emp.ID, "active", req.Month).First(&activeLoan).Error == nil {
+				if tx.Where("employee_id = ? AND status = ? AND start_month <= ?", empToCalc.ID, "active", req.Month).First(&activeLoan).Error == nil {
 					newBalance := activeLoan.RemainingBalance - payslip.Loan
 					updates := map[string]interface{}{"remaining_balance": newBalance}
 					if newBalance <= 0 {
@@ -369,6 +461,17 @@ func SavePayroll(c *gin.Context) {
 					}
 					if err := tx.Model(&activeLoan).Updates(updates).Error; err != nil {
 						return err
+					}
+					// Notify employee if this is their last installment
+					if newBalance > 0 && newBalance <= activeLoan.MonthlyInstallment {
+						empForEmail := emp
+						go func() {
+							if empForEmail.Email != "" {
+								if emailErr := services.SendLoanBalanceLowEmail(empForEmail.Email, empForEmail.Name, newBalance); emailErr != nil {
+									log.Printf("loan balance email failed for %s: %v", empForEmail.Email, emailErr)
+								}
+							}
+						}()
 					}
 				}
 			}
@@ -393,13 +496,49 @@ func GetPayrollHistory(c *gin.Context) {
 	}
 
 	var payrolls []models.Payroll
-	if err := database.DB.Preload("Employee").Where("month = ?", month).Find(&payrolls).Error; err != nil {
+	if err := database.DB.Where("month = ?", month).Find(&payrolls).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch payroll history"})
 		return
 	}
 
-	// Also fetch employee names map to enrich response or just respond with the raw records
+	// Load employee info separately (Employee field uses gorm:"-" so Preload doesn't apply)
+	var employees []models.User
+	database.DB.Preload("SalaryProfile").Find(&employees)
+	empMap := make(map[string]*models.User, len(employees))
+	for i := range employees {
+		empMap[employees[i].ID] = &employees[i]
+	}
+	for i := range payrolls {
+		payrolls[i].Employee = empMap[payrolls[i].EmployeeID]
+	}
+
 	c.JSON(http.StatusOK, gin.H{"month": month, "payrolls": payrolls})
+}
+
+// GetSavedPayrollMonths returns all distinct months that have saved payroll records, newest first (GET /api/payroll/months)
+func GetSavedPayrollMonths(c *gin.Context) {
+	var months []string
+	if err := database.DB.Model(&models.Payroll{}).
+		Distinct("month").
+		Order("month desc").
+		Pluck("month", &months).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch payroll months"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"months": months})
+}
+
+// GetEmployeePayrollHistory returns all saved monthly payroll records for one employee (GET /api/payroll/employee/:id/history)
+func GetEmployeePayrollHistory(c *gin.Context) {
+	employeeID := c.Param("id")
+
+	var payrolls []models.Payroll
+	if err := database.DB.Where("employee_id = ?", employeeID).Order("month desc").Find(&payrolls).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch payroll history"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"payrolls": payrolls})
 }
 
 // EmailPayslip receives a pre-generated PDF and emails it to the given address (POST /api/payroll/email-payslip)
@@ -470,4 +609,52 @@ func GetEmployeePayroll(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"payroll": payroll})
+}
+
+// NotifyPayslipReady emails all employees that have a saved payroll record for the given month,
+// telling them their payslip is ready to view in the portal (POST /api/payroll/notify-ready).
+func NotifyPayslipReady(c *gin.Context) {
+	var req struct {
+		Month string `json:"month" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var payrolls []models.Payroll
+	if err := database.DB.Where("month = ?", req.Month).Find(&payrolls).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch payroll records"})
+		return
+	}
+
+	ids := make([]string, 0, len(payrolls))
+	for _, p := range payrolls {
+		ids = append(ids, p.EmployeeID)
+	}
+
+	var employees []models.User
+	if len(ids) > 0 {
+		database.DB.Where("id IN ?", ids).Find(&employees)
+	}
+
+	sent := 0
+	failed := 0
+	for _, emp := range employees {
+		if emp.Email == "" {
+			continue
+		}
+		if err := services.SendPayslipReadyEmail(emp.Email, emp.Name, req.Month); err != nil {
+			log.Printf("payslip-ready email failed for %s: %v", emp.Email, err)
+			failed++
+		} else {
+			sent++
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": fmt.Sprintf("notifications sent to %d employee(s)", sent),
+		"sent":    sent,
+		"failed":  failed,
+	})
 }

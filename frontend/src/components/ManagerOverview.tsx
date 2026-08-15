@@ -2,23 +2,27 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from '@/hooks/useApi';
 import type { User, Payroll } from '@/lib/api';
-import { 
-  Users, Clock, DollarSign, BarChart2, PieChart as PieIcon, TrendingUp, Calendar, Info
+import {
+  Users, Clock, DollarSign, BarChart2, PieChart as PieIcon, TrendingUp, Calendar, Info,
+  CheckCircle2
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { 
+import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
 } from 'recharts';
 
+// Build YYYY-MM string for the current month
+const thisMonth = new Date().toISOString().slice(0, 7);
+
 export default function ManagerOverview({ user }: { user: User }) {
   const api = useApi();
-  const [selectedMonth, setSelectedMonth] = useState('2026-06');
-  
+  const [selectedMonth, setSelectedMonth] = useState(thisMonth);
+
   const managerDept = user.department;
   const isManager = user.role === 'MANAGER';
 
-  // 1. Fetch all active employees
+  // 1. Fetch all active employees (for team size)
   const { data: empData, isLoading: empsLoading } = useQuery({
     queryKey: ['employees'],
     queryFn: async () => {
@@ -27,26 +31,38 @@ export default function ManagerOverview({ user }: { user: User }) {
     },
   });
 
-  // 2. Fetch calculated payroll for selected month (real-time calculations)
-  const { data: payrollData, isLoading: payrollLoading } = useQuery({
-    queryKey: ['payrollCalculate', selectedMonth],
+  // 2. Fetch list of months that have saved payroll
+  const { data: monthsData } = useQuery({
+    queryKey: ['payrollMonths'],
     queryFn: async () => {
-      const res = await api.get<{ payslips: Payroll[] }>(`/payroll/calculate?month=${selectedMonth}`);
+      const res = await api.get<{ months: string[] }>('/payroll/months');
+      return res.data;
+    },
+  });
+  const savedMonths = monthsData?.months || [];
+
+  // 3. Fetch SAVED payroll records for the selected month
+  const { data: payrollData, isLoading: payrollLoading } = useQuery({
+    queryKey: ['payrollHistory', selectedMonth],
+    queryFn: async () => {
+      const res = await api.get<{ month: string; payrolls: Payroll[] }>(`/payroll/history?month=${selectedMonth}`);
       return res.data;
     },
   });
 
   const employees = empData?.employees || [];
-  const payslips = payrollData?.payslips || [];
+  const payslips = payrollData?.payrolls || [];
 
   // Filter based on manager's department (or show all for Admin)
-  const teamEmployees = isManager && managerDept 
+  const teamEmployees = isManager && managerDept
     ? employees.filter(e => e.department === managerDept)
     : employees;
 
   const teamPayslips = isManager && managerDept
     ? payslips.filter(ps => ps.employee?.department === managerDept)
     : payslips;
+
+  const isSavedMonth = payslips.length > 0;
 
   // --- Aggregate Stats ---
   const teamSize = teamEmployees.length;
@@ -106,45 +122,92 @@ export default function ManagerOverview({ user }: { user: User }) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-4">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
-        <p className="text-sm text-gray-500 font-medium">Analyzing department analytics...</p>
+        <p className="text-sm text-gray-500 font-medium">Loading payroll records for {selectedMonth}…</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Month & Title Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-        <div>
-          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <BarChart2 className="w-5 h-5 text-blue-600" />
-            {isManager ? `${managerDept || 'Department'} Performance & Analytics` : 'Global Payroll Analytics'}
-          </h2>
-          <p className="text-xs text-gray-500">
-            Real-time visual reports of salary expenditures, hour spreads, and statutory payouts.
-          </p>
+      {/* Month Selector Header */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+              <BarChart2 className="w-5 h-5 text-blue-600" />
+              {isManager ? `${managerDept || 'Department'} Overview` : 'Company Payroll Overview'}
+            </h2>
+            <p className="text-xs text-gray-500">
+              Select a month to view its finalized payroll summary, salary breakdown, and statutory contributions.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <Calendar className="w-4 h-4 text-gray-400" />
+            <input
+              type="month"
+              className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={selectedMonth}
+              onChange={e => setSelectedMonth(e.target.value)}
+            />
+            {isSavedMonth && (
+              <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-semibold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-200">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Finalized
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <input
-            type="month"
-            className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={selectedMonth}
-            onChange={e => setSelectedMonth(e.target.value)}
-          />
-        </div>
+
+        {/* Quick-select: months that have saved payroll */}
+        {savedMonths.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Finalized months:</span>
+            {savedMonths.map(m => (
+              <button
+                key={m}
+                onClick={() => setSelectedMonth(m)}
+                className={`px-3 py-1 text-xs rounded-full font-semibold transition-all border ${
+                  m === selectedMonth
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-blue-400 hover:text-blue-600'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {teamPayslips.length === 0 ? (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex items-start gap-4">
-          <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <h4 className="font-bold text-amber-900 text-sm">No Payroll Calculations Processed</h4>
-            <p className="text-xs text-amber-700 leading-relaxed">
-              There are no payroll records calculated for {selectedMonth}. 
-              Please go to the **Run Payroll** tab and click **Run Calculation** to compute variables and populate these analytical charts.
-            </p>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-8 space-y-4">
+          <div className="flex items-start gap-4">
+            <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1.5">
+              <h4 className="font-bold text-amber-900 text-sm">No Finalized Payroll for {selectedMonth}</h4>
+              <p className="text-xs text-amber-700 leading-relaxed">
+                Payroll has not been saved for this month yet. Go to the <strong>Run Payroll</strong> tab,
+                run the calculation, adjust any fixed-salary amounts, and click <strong>Save &amp; Finalize</strong>.
+                Once saved, the overview for {selectedMonth} will appear here.
+              </p>
+            </div>
           </div>
+          {savedMonths.length > 0 && (
+            <div className="border-t border-amber-200 pt-3">
+              <p className="text-[11px] font-semibold text-amber-700 mb-2">Jump to a month with saved payroll:</p>
+              <div className="flex flex-wrap gap-2">
+                {savedMonths.map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setSelectedMonth(m)}
+                    className="px-3 py-1 text-xs rounded-full font-semibold bg-white text-amber-700 border border-amber-300 hover:bg-amber-100 transition-colors"
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -320,7 +383,7 @@ export default function ManagerOverview({ user }: { user: User }) {
               <div className="bg-blue-50/50 rounded-lg p-3 border border-blue-100 flex items-start gap-2.5 text-[10px] text-blue-800 leading-normal">
                 <Info className="w-3.5 h-3.5 text-blue-600 mt-0.5 shrink-0" />
                 <span>
-                  These analytics are calculated dynamically using Sri Lankan EPF/ETF rules.
+                  Figures are from the finalized payroll saved for {selectedMonth}.
                 </span>
               </div>
             </Card>
